@@ -1,12 +1,11 @@
-# app.py — Groq-only; sin barra de filtro; KB de especies ampliable por subida
+# app.py — Groq-only, sin uploader ni filtros; re-ranking LLM y UI limpia
 import streamlit as st
 import pandas as pd
 from pathlib import Path
 
 from tools import (
     prepare_concept_kb, search_concepts,
-    prepare_species_kb, identify_species,
-    parse_species_upload, rebuild_species_kb
+    prepare_species_kb, identify_species
 )
 from agent import BioLLM
 
@@ -15,12 +14,15 @@ st.set_page_config(page_title="Agente LLM de Biología", page_icon="🧬", layou
 # =========================
 # Parámetros por defecto
 # =========================
-K_DEFAULT = 8          # más recall para el re-ranking del LLM
-CONF_THRESHOLD = 0.45  # umbral para aviso
-SIDEBAR_IMAGE_LOCAL = Path("assets/mascot.png")
+K_DEFAULT = 8          # Top-K para recuperación semántica (más recall para re-ranking)
+CONF_THRESHOLD = 0.45  # Umbral para avisos de baja confianza
+
+# Imagen de la sidebar (cámbiala a tu gusto)
+SIDEBAR_IMAGE_LOCAL = Path("assets/mascot.png")  # sube tu imagen con este nombre
 SIDEBAR_IMAGE_URL   = "https://upload.wikimedia.org/wikipedia/commons/3/37/African_Bush_Elephant.jpg"
 
 def _listify_str(x):
+    """Convierte x en lista de strings para ', '.join(...) sin romper si es str/None."""
     if x is None:
         return []
     if isinstance(x, str):
@@ -31,9 +33,11 @@ def _listify_str(x):
         return [str(x)]
 
 # =========================
-# Sidebar mínima + carga de KB extra
+# Sidebar mínima
 # =========================
 st.sidebar.header("⚙️ Configuración (Groq)")
+
+# 1) Key desde Secrets (prioridad) o barra lateral
 groq_key_secret = None
 try:
     groq_key_secret = st.secrets.get("GROQ_API_KEY", None)
@@ -42,6 +46,7 @@ except Exception:
 
 groq_api_key = st.sidebar.text_input("Groq API Key", type="password")
 effective_groq_key = groq_key_secret if groq_key_secret else (groq_api_key or None)
+
 if not effective_groq_key:
     st.sidebar.warning("Agrega tu `GROQ_API_KEY` para usar la app.")
     st.error("Esta app está en modo **Groq-only**. Agrega tu `GROQ_API_KEY` en *Secrets* o escríbela en la barra lateral.")
@@ -56,12 +61,8 @@ if SIDEBAR_IMAGE_LOCAL.exists():
 else:
     st.sidebar.image(SIDEBAR_IMAGE_URL, caption="Identificador de especies", use_column_width=True)
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("📥 KB adicional de especies (opcional)")
-uploaded_sp = st.sidebar.file_uploader("Sube CSV o JSONL con columnas: scientific_name, common_names, traits, taxonomy", type=["csv","jsonl"])
-
 # =========================
-# Carga y caches
+# Carga y cachés
 # =========================
 @st.cache_resource(show_spinner=False)
 def load_kb():
@@ -69,24 +70,9 @@ def load_kb():
     sp, corpus_s, embedder_s, index_s    = prepare_species_kb("kb/species.jsonl")
     return (docs, corpus_c, embedder_c, index_c), (sp, corpus_s, embedder_s, index_s)
 
-(concepts_pack, species_pack_base) = load_kb()
+(concepts_pack, species_pack) = load_kb()
 docs, corpus_c, embedder_c, index_c = concepts_pack
-sp_base, corpus_s_base, embedder_s_base, index_s_base = species_pack_base
-
-# Si el usuario sube una KB extra, reconstruimos la KB de especies al vuelo
-if "species_pack" not in st.session_state:
-    st.session_state.species_pack = (sp_base, corpus_s_base, embedder_s_base, index_s_base)
-
-if uploaded_sp is not None:
-    try:
-        extra_records = parse_species_upload(uploaded_sp)
-        sp_m, corpus_m, embedder_m, index_m = rebuild_species_kb(sp_base, extra_records)
-        st.session_state.species_pack = (sp_m, corpus_m, embedder_m, index_m)
-        st.sidebar.success(f"KB extra cargada: +{len(extra_records)} especies.")
-    except Exception as e:
-        st.sidebar.error(f"No se pudo cargar la KB extra: {e}")
-
-sp, corpus_s, embedder_s, index_s = st.session_state.species_pack
+sp, corpus_s, embedder_s, index_s   = species_pack
 
 @st.cache_resource(show_spinner=False)
 def make_llm_cached(groq_model_name: str, api_key: str):
@@ -102,17 +88,21 @@ st.caption("Identificador de especies por descripción • Conceptos y procesos 
 
 tabs = st.tabs(["Identificar especie", "Conceptos y procesos"])
 
-# --- Tab 1: Identificar especie (sin barra de filtro) ---
+# --- Tab 1: Identificar especie (sin filtros) ---
 with tabs[0]:
     st.subheader("🦋 Identificador de especies por descripción")
-    desc = st.text_area("Describe rasgos, color, hábitat, comportamiento…",
-                        "Mamífero muy grande con orejas grandes y trompa; habita sabanas africanas.")
+    desc = st.text_area(
+        "Describe rasgos, color, hábitat, comportamiento…",
+        "Mamífero muy grande con orejas grandes y trompa; habita sabanas africanas."
+    )
     run_id = st.button("Identificar", type="primary", key="id_btn")
 
     if run_id and desc.strip():
+        # Recuperación semántica base
         results = identify_species(desc, sp, corpus_s, embedder_s, index_s, k=K_DEFAULT)
-        df = pd.DataFrame(results)
+
         st.write("📊 Candidatos (mayor similitud primero):")
+        df = pd.DataFrame(results)
         st.dataframe(df, use_container_width=True)
 
         # Re-ranking por LLM sobre top-K
@@ -155,3 +145,4 @@ with tabs[1]:
             ans = llm.answer_concepts_or_process(text, hits, mode="qa")
 
         st.success(ans)
+
