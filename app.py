@@ -100,7 +100,7 @@ st.sidebar.caption("🔌 Motor activo: **Groq**")
 
 st.sidebar.markdown("---")
 # 👉 usa la tarjeta con marco y sombra para la foto del mono
-sidebar_photo_card(SIDEBAR_IMAGE_LOCAL, SIDEBAR_IMAGE_URL, caption="Mono")
+sidebar_photo_card(SIDEBAR_IMAGE_LOCAL, SIDEBAR_IMAGE_URL, caption="")
 
 # =========================
 # Carga y cachés
