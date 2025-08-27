@@ -1,10 +1,351 @@
-{"scientific_name":"Panthera onca","common_names":["jaguar"],"traits":"Felino grande de América; pelaje amarillo con rosetas; hábitats: selvas/humedales; mordida muy potente.","taxonomy":"Mammalia > Carnivora > Felidae"}
-{"scientific_name":"Ara macao","common_names":["guacamayo rojo","scarlet macaw"],"traits":"Plumaje rojo brillante con amarillo y azul; pico fuerte; bosques húmedos neotropicales.","taxonomy":"Aves > Psittaciformes > Psittacidae"}
-{"scientific_name":"Zea mays","common_names":["maíz"],"traits":"Gramínea alta; mazorcas; hojas largas; flores masculinas en panoja.","taxonomy":"Plantae > Poales > Poaceae"}
-{"scientific_name":"Solanum lycopersicum","common_names":["tomate"],"traits":"Flores amarillas; fruto rojo tipo baya; tallos pubescentes; olor característico.","taxonomy":"Plantae > Solanales > Solanaceae"}
-{"scientific_name":"Drosophila melanogaster","common_names":["mosca de la fruta"],"traits":"Insecto pequeño; ojos rojos; modelo en genética; frutas en fermentación.","taxonomy":"Insecta > Diptera > Drosophilidae"}
-{"scientific_name":"Quercus robur","common_names":["roble"],"traits":"Árbol caducifolio; hojas lobuladas; bellotas; corteza parda.","taxonomy":"Plantae > Fagales > Fagaceae"}
-{"scientific_name":"Pinus radiata","common_names":["pino de Monterrey"],"traits":"Conífera; hojas aciculares en fascículos; conos leñosos; resinoso.","taxonomy":"Plantae > Pinales > Pinaceae"}
-{"scientific_name":"Homo sapiens","common_names":["humano"],"traits":"Bípedo; pulgar oponible; lenguaje complejo; gran encéfalo.","taxonomy":"Mammalia > Primates > Hominidae"}
-{"scientific_name":"Heliconius erato","common_names":["mariposa cebra larga"],"traits":"Alas negras con bandas rojas/crema; mimetismo mülleriano; selvas neotropicales.","taxonomy":"Insecta > Lepidoptera > Nymphalidae"}
-{"scientific_name":"Anopheles gambiae","common_names":["mosquito"],"traits":"Vector de malaria; palpos largos; actividad crepuscular/nocturna.","taxonomy":"Insecta > Diptera > Culicidae"}
+# Build a species.jsonl package and save to /mnt/data for download
+import json
+
+species = [
+    # ========== MAMÍFEROS ==========
+    {
+        "scientific_name": "Loxodonta africana",
+        "common_names": ["elefante africano"],
+        "traits": "Mamífero terrestre más grande; orejas muy grandes; trompa; colmillos; vive en sabanas y bosques africanos.",
+        "taxonomy": "Mammalia > Proboscidea > Elephantidae"
+    },
+    {
+        "scientific_name": "Elephas maximus",
+        "common_names": ["elefante asiático"],
+        "traits": "Orejas más pequeñas que el africano; lomo arqueado; algunos machos sin colmillos; bosques tropicales de Asia.",
+        "taxonomy": "Mammalia > Proboscidea > Elephantidae"
+    },
+    {
+        "scientific_name": "Panthera leo",
+        "common_names": ["león"],
+        "traits": "Felino grande; machos con melena; social en manadas; vive en sabanas africanas.",
+        "taxonomy": "Mammalia > Carnivora > Felidae"
+    },
+    {
+        "scientific_name": "Panthera onca",
+        "common_names": ["jaguar", "yaguareté"],
+        "traits": "Felino grande; rosetas con punto central; cuerpo robusto; nadador; selvas húmedas y pantanos de América.",
+        "taxonomy": "Mammalia > Carnivora > Felidae"
+    },
+    {
+        "scientific_name": "Panthera tigris",
+        "common_names": ["tigre"],
+        "traits": "Felino rayado; cuerpo grande y musculoso; solitario; bosques y pastizales de Asia.",
+        "taxonomy": "Mammalia > Carnivora > Felidae"
+    },
+    {
+        "scientific_name": "Panthera pardus",
+        "common_names": ["leopardo"],
+        "traits": "Manchas en roseta sin punto central; trepador; sigiloso; África y Asia.",
+        "taxonomy": "Mammalia > Carnivora > Felidae"
+    },
+    {
+        "scientific_name": "Acinonyx jubatus",
+        "common_names": ["guepardo", "cheetah"],
+        "traits": "Felino más veloz; cuerpo esbelto; líneas negras lagrimales; sabanas africanas.",
+        "taxonomy": "Mammalia > Carnivora > Felidae"
+    },
+    {
+        "scientific_name": "Ursus maritimus",
+        "common_names": ["oso polar"],
+        "traits": "Pelaje blanco; patas grandes para nadar; depredador del Ártico; caza focas.",
+        "taxonomy": "Mammalia > Carnivora > Ursidae"
+    },
+    {
+        "scientific_name": "Ursus arctos",
+        "common_names": ["oso pardo"],
+        "traits": "Gran tamaño; joroba muscular en hombros; dieta omnívora; bosques y montañas del hemisferio norte.",
+        "taxonomy": "Mammalia > Carnivora > Ursidae"
+    },
+    {
+        "scientific_name": "Canis lupus",
+        "common_names": ["lobo gris"],
+        "traits": "Canino social en manadas; aullido; hocico largo; bosques, tundras y praderas del hemisferio norte.",
+        "taxonomy": "Mammalia > Carnivora > Canidae"
+    },
+    {
+        "scientific_name": "Vulpes vulpes",
+        "common_names": ["zorro rojo"],
+        "traits": "Pelaje rojizo; cola tupida con punta blanca; hocico fino; muy adaptable.",
+        "taxonomy": "Mammalia > Carnivora > Canidae"
+    },
+    {
+        "scientific_name": "Hydrochoerus hydrochaeris",
+        "common_names": ["capibara", "carpincho"],
+        "traits": "Roedor más grande; cuerpo robusto; patas parcialmente palmeadas; ambientes acuáticos de Sudamérica.",
+        "taxonomy": "Mammalia > Rodentia > Caviidae"
+    },
+    {
+        "scientific_name": "Bradypus variegatus",
+        "common_names": ["perezoso de tres dedos"],
+        "traits": "Movimiento lento; tres dedos en manos; pelaje con algas; selvas neotropicales.",
+        "taxonomy": "Mammalia > Pilosa > Bradypodidae"
+    },
+    {
+        "scientific_name": "Didelphis marsupialis",
+        "common_names": ["zarigüeya común"],
+        "traits": "Marsupial; cola prensil; hocico puntiagudo; hábitos nocturnos; América tropical.",
+        "taxonomy": "Mammalia > Didelphimorphia > Didelphidae"
+    },
+    {
+        "scientific_name": "Alouatta palliata",
+        "common_names": ["mono aullador de manto"],
+        "traits": "Vocalizaciones potentes; barba en machos; folívoro; bosques neotropicales.",
+        "taxonomy": "Mammalia > Primates > Atelidae"
+    },
+    {
+        "scientific_name": "Ateles geoffroyi",
+        "common_names": ["mono araña"],
+        "traits": "Cola prensil larga; extremidades largas; frugívoro; copa de los árboles.",
+        "taxonomy": "Mammalia > Primates > Atelidae"
+    },
+    {
+        "scientific_name": "Delphinus delphis",
+        "common_names": ["delfín común"],
+        "traits": "Hocico pronunciado; patrón en reloj de arena en flancos; grupos grandes; mares templados.",
+        "taxonomy": "Mammalia > Artiodactyla > Delphinidae"
+    },
+    {
+        "scientific_name": "Balaenoptera musculus",
+        "common_names": ["ballena azul"],
+        "traits": "Animal más grande; color gris azulado moteado; surcos ventrales; océanos del mundo.",
+        "taxonomy": "Mammalia > Artiodactyla > Balaenopteridae"
+    },
+    {
+        "scientific_name": "Odocoileus virginianus",
+        "common_names": ["venado cola blanca"],
+        "traits": "Cola blanca por debajo; cornamenta ramificada en machos; América.",
+        "taxonomy": "Mammalia > Artiodactyla > Cervidae"
+    },
+    {
+        "scientific_name": "Alces alces",
+        "common_names": ["alce"],
+        "traits": "Cervido más grande; hocico colgante; cornamenta palmeada; humedales boreales.",
+        "taxonomy": "Mammalia > Artiodactyla > Cervidae"
+    },
+
+    # ========== AVES ==========
+    {
+        "scientific_name": "Struthio camelus",
+        "common_names": ["avestruz"],
+        "traits": "Ave corredora más grande; no voladora; patas largas de dos dedos; África.",
+        "taxonomy": "Aves > Struthioniformes > Struthionidae"
+    },
+    {
+        "scientific_name": "Ara macao",
+        "common_names": ["guacamayo rojo", "lapa roja"],
+        "traits": "Plumaje rojo intenso con amarillo y azul; gran pico curvado; selvas neotropicales.",
+        "taxonomy": "Aves > Psittaciformes > Psittacidae"
+    },
+    {
+        "scientific_name": "Falco peregrinus",
+        "common_names": ["halcón peregrino"],
+        "traits": "Ave de presa veloz; bigotera oscura; caza en picado; ciudades y acantilados.",
+        "taxonomy": "Aves > Falconiformes > Falconidae"
+    },
+    {
+        "scientific_name": "Spheniscus humboldti",
+        "common_names": ["pingüino de Humboldt"],
+        "traits": "Pingüino mediano; franja pectoral negra; costas de Perú y Chile.",
+        "taxonomy": "Aves > Sphenisciformes > Spheniscidae"
+    },
+    {
+        "scientific_name": "Phoenicopterus ruber",
+        "common_names": ["flamenco del Caribe"],
+        "traits": "Plumaje rosado; pico curvado con negro en punta; patas largas; lagunas salobres.",
+        "taxonomy": "Aves > Phoenicopteriformes > Phoenicopteridae"
+    },
+    {
+        "scientific_name": "Ardea alba",
+        "common_names": ["garza blanca"],
+        "traits": "Ave alta; plumaje blanco; cuello en S; picos amarillos; humedales.",
+        "taxonomy": "Aves > Pelecaniformes > Ardeidae"
+    },
+
+    # ========== REPTILES ==========
+    {
+        "scientific_name": "Crocodylus acutus",
+        "common_names": ["cocodrilo americano"],
+        "traits": "Hocico relativamente estrecho; dientes visibles con la boca cerrada; manglares y estuarios tropicales.",
+        "taxonomy": "Reptilia > Crocodylia > Crocodylidae"
+    },
+    {
+        "scientific_name": "Iguana iguana",
+        "common_names": ["iguana verde"],
+        "traits": "Cresta dorsal; papada; cola larga; arborícola; zonas tropicales de América.",
+        "taxonomy": "Reptilia > Squamata > Iguanidae"
+    },
+    {
+        "scientific_name": "Chelonia mydas",
+        "common_names": ["tortuga verde"],
+        "traits": "Caparazón ovalado; cabeza pequeña; pastos marinos; mares tropicales.",
+        "taxonomy": "Reptilia > Testudines > Cheloniidae"
+    },
+    {
+        "scientific_name": "Python regius",
+        "common_names": ["pitón real"],
+        "traits": "Serpiente no venenosa; patrón marrón/negro; comportamiento de hacerse bola; África occidental.",
+        "taxonomy": "Reptilia > Squamata > Pythonidae"
+    },
+
+    # ========== ANFIBIOS ==========
+    {
+        "scientific_name": "Ambystoma mexicanum",
+        "common_names": ["ajolote"],
+        "traits": "Larviforme neoténico; branquias externas plumosas; regeneración; lagos de México.",
+        "taxonomy": "Amphibia > Urodela > Ambystomatidae"
+    },
+    {
+        "scientific_name": "Dendrobates tinctorius",
+        "common_names": ["rana dardo"],
+        "traits": "Colores aposemáticos brillantes; venenosa; bosques húmedos de Sudamérica.",
+        "taxonomy": "Amphibia > Anura > Dendrobatidae"
+    },
+    {
+        "scientific_name": "Rhinella marina",
+        "common_names": ["sapo de caña", "sapo gigante"],
+        "traits": "Gran tamaño; glándulas parotoideas prominentes; tóxico; ambientes alterados tropicales.",
+        "taxonomy": "Amphibia > Anura > Bufonidae"
+    },
+
+    # ========== PECES ==========
+    {
+        "scientific_name": "Carcharodon carcharias",
+        "common_names": ["tiburón blanco"],
+        "traits": "Gran tiburón; hocico cónico; dorso gris y vientre blanco; aguas templadas.",
+        "taxonomy": "Chondrichthyes > Lamniformes > Lamnidae"
+    },
+    {
+        "scientific_name": "Hippocampus hippocampus",
+        "common_names": ["caballito de mar común"],
+        "traits": "Cuerpo en forma de caballo; cola prensil; machos incuban huevos; praderas marinas.",
+        "taxonomy": "Actinopterygii > Syngnathiformes > Syngnathidae"
+    },
+    {
+        "scientific_name": "Pterois volitans",
+        "common_names": ["pez león"],
+        "traits": "Aletas pectorales muy extendidas; espinas venenosas; bandas rojas y blancas; arrecifes.",
+        "taxonomy": "Actinopterygii > Scorpaeniformes > Scorpaenidae"
+    },
+    {
+        "scientific_name": "Salmo salar",
+        "common_names": ["salmón del Atlántico"],
+        "traits": "Migrador anádromo; cuerpo plateado con puntos; remonta ríos para desovar.",
+        "taxonomy": "Actinopterygii > Salmoniformes > Salmonidae"
+    },
+
+    # ========== INSECTOS / ARTRÓPODOS ==========
+    {
+        "scientific_name": "Apis mellifera",
+        "common_names": ["abeja de la miel"],
+        "traits": "Eusocial; productora de miel; patrones amarillos y negros; importante polinizador.",
+        "taxonomy": "Insecta > Hymenoptera > Apidae"
+    },
+    {
+        "scientific_name": "Danaus plexippus",
+        "common_names": ["mariposa monarca"],
+        "traits": "Alas anaranjadas con venación negra; migraciones largas; larvas en algodoncillo.",
+        "taxonomy": "Insecta > Lepidoptera > Nymphalidae"
+    },
+    {
+        "scientific_name": "Anopheles gambiae",
+        "common_names": ["mosquito Anopheles"],
+        "traits": "Mosquito esbelto; porta el paludismo; antenas filiformes; agua estancada.",
+        "taxonomy": "Insecta > Diptera > Culicidae"
+    },
+    {
+        "scientific_name": "Atta cephalotes",
+        "common_names": ["hormiga cortadora de hojas"],
+        "traits": "Corte de hojas en fila; cultivo de hongos; castas marcadas; selvas neotropicales.",
+        "taxonomy": "Insecta > Hymenoptera > Formicidae"
+    },
+    {
+        "scientific_name": "Vespa mandarinia",
+        "common_names": ["avispón asiático gigante"],
+        "traits": "Gran tamaño; cabeza anaranjada; aguijón largo; nidos en suelo.",
+        "taxonomy": "Insecta > Hymenoptera > Vespidae"
+    },
+    {
+        "scientific_name": "Latrodectus mactans",
+        "common_names": ["viuda negra"],
+        "traits": "Araña negra con marca roja en forma de reloj de arena; veneno neurotóxico; telarañas desordenadas.",
+        "taxonomy": "Arachnida > Araneae > Theridiidae"
+    },
+    {
+        "scientific_name": "Loxosceles laeta",
+        "common_names": ["araña de rincón"],
+        "traits": "Marca en violín en cefalotórax; veneno necrótico; refugios en interiores.",
+        "taxonomy": "Arachnida > Araneae > Sicariidae"
+    },
+    {
+        "scientific_name": "Gromphadorhina portentosa",
+        "common_names": ["cucaracha de Madagascar"],
+        "traits": "Gran tamaño; sonido de siseo; alas ausentes; detritívora.",
+        "taxonomy": "Insecta > Blattodea > Blaberidae"
+    },
+
+    # ========== CRUSTÁCEOS / MOLUSCOS ==========
+    {
+        "scientific_name": "Carcinus maenas",
+        "common_names": ["cangrejo verde europeo"],
+        "traits": "Caparazón verde-oliva; cinco espinas laterales; invasor; estuarios y costas rocosas.",
+        "taxonomy": "Malacostraca > Decapoda > Portunidae"
+    },
+    {
+        "scientific_name": "Homarus americanus",
+        "common_names": ["langosta americana"],
+        "traits": "Grandes pinzas asimétricas; color variable; fondos rocosos del Atlántico noroeste.",
+        "taxonomy": "Malacostraca > Decapoda > Nephropidae"
+    },
+    {
+        "scientific_name": "Octopus vulgaris",
+        "common_names": ["pulpo común"],
+        "traits": "Ocho brazos con ventosas; alta inteligencia; camuflaje; fondos marinos rocosos.",
+        "taxonomy": "Mollusca > Cephalopoda > Octopodidae"
+    },
+    {
+        "scientific_name": "Helix aspersa",
+        "common_names": ["caracol de jardín"],
+        "traits": "Concha espiral marrón; cuerpo blando; activo tras lluvia; jardines y campos.",
+        "taxonomy": "Mollusca > Gastropoda > Helicidae"
+    },
+    {
+        "scientific_name": "Loligo vulgaris",
+        "common_names": ["calamar común"],
+        "traits": "Cuerpo alargado; dos tentáculos más largos; cromatóforos; cardúmenes costeros.",
+        "taxonomy": "Mollusca > Cephalopoda > Loliginidae"
+    },
+
+    # ========== PLANTAS (para ampliar dominio) ==========
+    {
+        "scientific_name": "Quercus robur",
+        "common_names": ["roble común"],
+        "traits": "Árbol caducifolio; hojas lobuladas; bellotas; bosques templados europeos.",
+        "taxonomy": "Plantae > Fagales > Fagaceae"
+    },
+    {
+        "scientific_name": "Zea mays",
+        "common_names": ["maíz"],
+        "traits": "Planta gramínea alta; espigas (mazorcas); hojas anchas; cultivo agrícola.",
+        "taxonomy": "Plantae > Poales > Poaceae"
+    },
+    {
+        "scientific_name": "Rosa rubiginosa",
+        "common_names": ["rosa mosqueta"],
+        "traits": "Arbusto espinoso; flores rosadas; frutos rojos ricos en vitamina C; matorrales templados.",
+        "taxonomy": "Plantae > Rosales > Rosaceae"
+    },
+    {
+        "scientific_name": "Musa paradisiaca",
+        "common_names": ["banano", "plátano"],
+        "traits": "Planta herbácea alta; hojas grandes; racimos de frutos; trópicos húmedos.",
+        "taxonomy": "Plantae > Zingiberales > Musaceae"
+    }
+]
+
+out_path = "/mnt/data/species.jsonl"
+with open(out_path, "w", encoding="utf-8") as f:
+    for rec in species:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+out_path
