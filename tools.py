@@ -150,5 +150,3 @@ def rebuild_species_kb(base_sp: List[Dict], extra_sp: List[Dict]):
     index = VectorIndex(embs)
     return merged, corpus, embedder, index
 
-
-
