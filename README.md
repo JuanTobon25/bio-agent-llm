@@ -1,16 +1,41 @@
-# Agente LLM de Biología (Streamlit)
+🧬 Agente LLM de Biología (Streamlit • Groq-only)
 
-## Capacidades
-1. **Q&A con RAG local**: responde usando una KB propia (`kb/concepts.jsonl`).
-2. **Identificar especies por descripción**: ranking semántico sobre `kb/species.jsonl`.
-3. **Explicar procesos**: pasos claros (mitosis, ósmosis, etc.).
-4. **OCR → Análisis**: extrae texto de imágenes y lo resume/analiza.
+Qué hace
 
-## Motores LLM
-- **Local (por defecto):** FLAN-T5-small (gratuito).
-- **Groq (opcional):** Llama-3 (seleccionable en Sidebar). Requiere `GROQ_API_KEY`.
+🦋 Identificar especies por descripción: búsqueda semántica (FastEmbed) + re-ranking con Llama-3 (Groq) y explicación/confianza.
 
-## Cómo correr
-```bash
+📚 Conceptos y procesos (RAG): Q&A y explicaciones usando solo el contexto de kb/concepts.jsonl (con Fuentes).
+
+🖼️ UI con 2 pestañas y sidebar mínima (API key, modelo y foto con marco/sombra).
+
+Modelos / Arquitectura
+
+🤖 LLM: Groq (llama3-70b-8192 / llama3-8b-8192).
+
+🔎 Embeddings: FastEmbed multilingüe + índice NumPy (coseno).
+
+🎯 Top-K por defecto: 8. Sin FLAN ni OCR.
+
+Estructura
+
+app.py        # UI
+agent.py      # cliente Groq + prompts + re-ranking
+tools.py      # embeddings + índice + utilidades KB
+kb/           # concepts.jsonl, species.jsonl
+assets/mono.jpg
+requirements.txt
+
+
+Configurar y correr
+
+🌐 Streamlit Cloud → Settings → Secrets:
+
+GROQ_API_KEY = "tu_api_key_de_groq"
+
+
+(ó escríbela en la sidebar).
+2) 🖼️ Cambia la foto opcional: assets/mono.jpg.
+3) ▶️ Local:
+
 pip install -r requirements.txt
 streamlit run app.py
