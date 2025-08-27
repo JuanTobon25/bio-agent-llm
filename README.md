@@ -14,14 +14,23 @@
 
 ## 🗂 **Estructura**
 ├── app.py # UI de Streamlit (2 pestañas)
+
 ├── agent.py # Cliente Groq + prompts + re-ranking de especies
+
 ├── tools.py # FastEmbed + índice NumPy y utilidades de KB
+
 ├── kb/
+
 │ ├── concepts.jsonl # Conceptos (RAG) — un JSON por línea
+
 │ └── species.jsonl # Especies — un JSON por línea
+
 ├── assets/
+
 │ └── mono.jpg # Imagen de la sidebar (con marco/sombra)
+
 ├── requirements.txt
+
 └── README.md
 
 ## 🚀 Cómo correr (local)
