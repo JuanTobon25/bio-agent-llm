@@ -1,6 +1,7 @@
-# app.py — Groq-only, con re-ranking de especies y sección unificada de conceptos/procesos
+# app.py — Groq-only, sidebar simplificada con imagen
 import streamlit as st
 import pandas as pd
+from pathlib import Path
 
 from tools import (
     prepare_concept_kb, search_concepts,
@@ -11,7 +12,13 @@ from agent import BioLLM
 st.set_page_config(page_title="Agente LLM de Biología", page_icon="🧬", layout="wide")
 
 # =========================
-# Sidebar: Configuración
+# Parámetros por defecto
+# =========================
+K_DEFAULT = 5          # Top-K para recuperación semántica
+CONF_THRESHOLD = 0.45  # Umbral de confianza (identificador)
+
+# =========================
+# Sidebar: Configuración mínima
 # =========================
 st.sidebar.header("⚙️ Configuración (Groq)")
 
@@ -25,7 +32,7 @@ except Exception:
 groq_api_key = st.sidebar.text_input(
     "Groq API Key",
     type="password",
-    help="Genera tu key en https://console.groq.com/keys (recomendado guardarla en Settings → Secrets)."
+    help="Genera tu key en https://console.groq.com/keys (recomendado guardarla en Settings → Secrets).",
 )
 
 # Determinar key efectiva
@@ -33,6 +40,7 @@ effective_groq_key = groq_key_secret if groq_key_secret else (groq_api_key or No
 
 # 🚫 Groq-only: si no hay key, detenemos
 if not effective_groq_key:
+    st.sidebar.warning("Agrega tu `GROQ_API_KEY` para usar la app.")
     st.error("Esta app está en modo **Groq-only**. Agrega tu `GROQ_API_KEY` en *Manage app → Settings → Secrets* o escríbela en la barra lateral.")
     st.stop()
 
@@ -41,14 +49,21 @@ groq_model = st.sidebar.selectbox(
     ["llama3-70b-8192", "llama3-8b-8192"],
     index=0
 )
-
 st.sidebar.caption("🔌 Motor activo: **Groq**")
 
+# — Imagen en la sidebar —
+# Coloca un archivo en tu repo: assets/mascot.png
+# Si no existe, usa una URL pública como respaldo.
 st.sidebar.markdown("---")
-st.sidebar.header("🔎 Recuperación")
-k = st.sidebar.slider("Top-K (búsqueda semántica)", 1, 8, 5)
-level = st.sidebar.selectbox("Nivel de explicación", ["secundaria", "universitario", "divulgación"], index=1)
-conf_threshold = st.sidebar.slider("Umbral de confianza (identificador)", 0.30, 0.80, 0.45, 0.01)
+sidebar_img_path = Path("assets/mascot.png")
+if sidebar_img_path.exists():
+    st.sidebar.image(str(sidebar_img_path), caption="Identificador de especies", use_container_width=True)
+else:
+    st.sidebar.image(
+        "https://upload.wikimedia.org/wikipedia/commons/3/37/African_Bush_Elephant.jpg",
+        caption="Identificador de especies",
+        use_container_width=True,
+    )
 
 # =========================
 # Recursos cacheados
@@ -89,7 +104,7 @@ with tabs[0]:
 
     if run_id and desc.strip():
         # Recuperación semántica base
-        results = identify_species(desc, sp, corpus_s, embedder_s, index_s, k=k)
+        results = identify_species(desc, sp, corpus_s, embedder_s, index_s, k=K_DEFAULT)
 
         # Boost simple por palabras clave (si aparecen en traits/taxonomía/nombres)
         if extra.strip():
@@ -102,25 +117,24 @@ with tabs[0]:
                     r["match_explanation"],
                 ]).lower()
                 if any(token.strip() and token.strip() in blob for token in kw.split(",")):
-                    r["similarity"] = float(min(1.0, r["similarity"] + 0.05))  # pequeño empujón
-            # reordenar
+                    r["similarity"] = float(min(1.0, r["similarity"] + 0.05))
             results = sorted(results, key=lambda x: x["similarity"], reverse=True)
 
         df = pd.DataFrame(results)
         st.write("📊 Candidatos (mayor similitud primero):")
         st.dataframe(df, use_container_width=True)
 
-        # Re-ranking por LLM (usa los top-K actuales)
-        rr = llm.rerank_species(desc, results, top_n=min(k, len(results)))
+        # Re-ranking por LLM
+        rr = llm.rerank_species(desc, results, top_n=min(K_DEFAULT, len(results)))
         best = rr.get("best", {})
         confidence = rr.get("confidence", 0.0)
         notes = rr.get("notes", "")
 
-        # Mensajes de confianza
-        if results and results[0]["similarity"] < conf_threshold:
+        # Mensaje si la confianza del índice es baja
+        if results and results[0]["similarity"] < CONF_THRESHOLD:
             st.warning(
                 "La confianza del índice es baja. Añade rasgos distintivos (patrones, medidas, región exacta) "
-                "o sube más descriptores."
+                "o más descriptores."
             )
 
         st.success("🔎 Veredicto del LLM (re-ranking):")
@@ -142,7 +156,7 @@ with tabs[1]:
     run_cp = st.button("Generar", type="primary", key="cp_btn")
 
     if run_cp and text.strip():
-        hits = search_concepts(text, docs, corpus_c, embedder_c, index_c, k=k)
+        hits = search_concepts(text, docs, corpus_c, embedder_c, index_c, k=K_DEFAULT)
         with st.expander("🔎 Contexto recuperado"):
             for h in hits:
                 st.markdown(f"**{h['title']}** — score: `{h['score']:.3f}`")
@@ -156,5 +170,6 @@ with tabs[1]:
 
         st.success("Respuesta:")
         st.write(ans)
+
 
 
