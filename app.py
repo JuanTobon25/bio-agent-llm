@@ -1,4 +1,4 @@
-# app.py — Groq-only, sidebar simplificada con imagen (use_column_width)
+# app.py — Groq-only, sidebar simplificada con imagen (robusto para common_names)
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -17,12 +17,23 @@ st.set_page_config(page_title="Agente LLM de Biología", page_icon="🧬", layou
 K_DEFAULT = 5          # Top-K para recuperación semántica
 CONF_THRESHOLD = 0.45  # Umbral de confianza (identificador)
 
+def _listify_str(x):
+    """Convierte x en lista de strings segura para usar en ', '.join(...)."""
+    if x is None:
+        return []
+    if isinstance(x, str):
+        return [x]
+    try:
+        return [str(v) for v in x]
+    except TypeError:
+        return [str(x)]
+
 # =========================
 # Sidebar: Configuración mínima
 # =========================
 st.sidebar.header("⚙️ Configuración (Groq)")
 
-# 1) Leer key desde Secrets (prioridad) o desde la sidebar
+# 1) Leer key desde Secrets (prioridad) o desde la barra lateral
 groq_key_secret = None
 try:
     groq_key_secret = st.secrets.get("GROQ_API_KEY", None)
@@ -52,21 +63,19 @@ groq_model = st.sidebar.selectbox(
 st.sidebar.caption("🔌 Motor activo: **Groq**")
 
 # — Imagen en la sidebar —
-# Coloca un archivo en tu repo: assets/mascot.png
-# Si no existe, usa una URL pública como respaldo.
 st.sidebar.markdown("---")
 sidebar_img_path = Path("assets/mascot.png")
 if sidebar_img_path.exists():
     st.sidebar.image(
         str(sidebar_img_path),
         caption="Identificador de especies",
-        use_column_width=True,   # <- corrección
+        use_column_width=True,
     )
 else:
     st.sidebar.image(
         "https://upload.wikimedia.org/wikipedia/commons/3/37/African_Bush_Elephant.jpg",
         caption="Identificador de especies",
-        use_column_width=True,   # <- corrección
+        use_column_width=True,
     )
 
 # =========================
@@ -130,27 +139,31 @@ with tabs[0]:
 
         # Re-ranking por LLM
         rr = llm.rerank_species(desc, results, top_n=min(K_DEFAULT, len(results)))
-        best = rr.get("best", {})
-        confidence = rr.get("confidence", 0.0)
-        notes = rr.get("notes", "")
+        best = rr.get("best", {}) or {}
+        confidence = float(rr.get("confidence", 0.0) or 0.0)
+        notes = rr.get("notes", "") or ""
 
         # Mensaje si la confianza del índice es baja
-        if results and results[0]["similarity"] < CONF_THRESHOLD:
+        if results and results[0].get("similarity", 0.0) < CONF_THRESHOLD:
             st.warning(
                 "La confianza del índice es baja. Añade rasgos distintivos (patrones, medidas, región exacta) "
                 "o más descriptores."
             )
 
+        # —— Línea robusta para nombres comunes ——
+        common_names_str = ", ".join(_listify_str(best.get("common_names")))
+        sci_name = best.get("scientific_name", "—")
+
         st.success("🔎 Veredicto del LLM (re-ranking):")
         st.write(
-            f"**{best.get('scientific_name', '—')}** "
-            f"({', '.join(best.get('common_names', []))}) — "
+            f"**{sci_name}** "
+            f"({common_names_str}) — "
             f"confianza LLM: **{confidence:.2f}**"
         )
         if best.get("reason"):
-            st.info(best["reason"])
+            st.info(str(best["reason"]))
         if notes:
-            st.caption(notes)
+            st.caption(str(notes))
 
 # --- Tab 2: Conceptos y procesos (unificados) ---
 with tabs[1]:
