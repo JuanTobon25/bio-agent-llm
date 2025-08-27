@@ -1,7 +1,8 @@
-# app.py — Groq-only, sin uploader ni filtros; re-ranking LLM y UI limpia
+# app.py — Groq-only, sidebar con foto en tarjeta (borde + sombra + esquinas redondeadas)
 import streamlit as st
 import pandas as pd
 from pathlib import Path
+import base64
 
 from tools import (
     prepare_concept_kb, search_concepts,
@@ -17,8 +18,8 @@ st.set_page_config(page_title="Agente LLM de Biología", page_icon="🧬", layou
 K_DEFAULT = 8          # Top-K para recuperación semántica (más recall para re-ranking)
 CONF_THRESHOLD = 0.45  # Umbral para avisos de baja confianza
 
-# Imagen de la sidebar (cámbiala a tu gusto)
-SIDEBAR_IMAGE_LOCAL = Path("assets/Mono.jpg")  # sube tu imagen con este nombre
+# Imagen de la sidebar (tu archivo local)
+SIDEBAR_IMAGE_LOCAL = Path("assets/Mono.jpg")  # Asegúrate de tener assets/mono.jpg en el repo
 SIDEBAR_IMAGE_URL   = "https://upload.wikimedia.org/wikipedia/commons/3/37/African_Bush_Elephant.jpg"
 
 def _listify_str(x):
@@ -31,6 +32,48 @@ def _listify_str(x):
         return [str(v) for v in x]
     except TypeError:
         return [str(x)]
+
+# -------- Patch: tarjeta con borde + sombra para la foto de la sidebar --------
+def sidebar_photo_card(image_path: Path, url_fallback: str, caption: str = ""):
+    """Muestra una imagen en la sidebar con borde, sombra y esquinas redondeadas."""
+    if image_path.exists():
+        data = image_path.read_bytes()
+        b64 = base64.b64encode(data).decode("utf-8")
+        ext = image_path.suffix.lstrip(".").lower() or "png"
+        src = f"data:image/{ext};base64,{b64}"
+    else:
+        src = url_fallback
+
+    st.sidebar.markdown(
+        f"""
+        <style>
+        .photo-card {{
+            border: 2px solid #e9ecef;
+            border-radius: 18px;
+            padding: 8px;
+            background: #ffffff;
+            box-shadow: 0 6px 16px rgba(0,0,0,.08);
+            margin-bottom: 10px;
+        }}
+        .photo-card img {{
+            width: 100%;
+            border-radius: 12px;
+            display: block;
+        }}
+        .photo-card .caption {{
+            text-align: center;
+            font-size: 0.85rem;
+            color: #6c757d;
+            margin-top: 6px;
+        }}
+        </style>
+        <div class="photo-card">
+            <img src="{src}" alt="{caption}">
+            <div class="caption">{caption}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # =========================
 # Sidebar mínima
@@ -56,10 +99,8 @@ groq_model = st.sidebar.selectbox("Modelo Groq", ["llama3-70b-8192", "llama3-8b-
 st.sidebar.caption("🔌 Motor activo: **Groq**")
 
 st.sidebar.markdown("---")
-if SIDEBAR_IMAGE_LOCAL.exists():
-    st.sidebar.image(str(SIDEBAR_IMAGE_LOCAL), caption="", use_column_width=True)
-else:
-    st.sidebar.image(SIDEBAR_IMAGE_URL, caption="Identificador de especies", use_column_width=True)
+# 👉 usa la tarjeta con marco y sombra para la foto del mono
+sidebar_photo_card(SIDEBAR_IMAGE_LOCAL, SIDEBAR_IMAGE_URL, caption="Mono")
 
 # =========================
 # Carga y cachés
