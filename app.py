@@ -1,4 +1,4 @@
-# app.py — Groq-only, sidebar simplificada con imagen
+# app.py — Groq-only, sidebar simplificada con imagen (use_column_width)
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -32,7 +32,7 @@ except Exception:
 groq_api_key = st.sidebar.text_input(
     "Groq API Key",
     type="password",
-    help="Genera tu key en https://console.groq.com/keys (recomendado guardarla en Settings → Secrets).",
+    help="Genera tu key en https://console.groq.com/keys (se recomienda guardarla en Settings → Secrets).",
 )
 
 # Determinar key efectiva
@@ -57,12 +57,16 @@ st.sidebar.caption("🔌 Motor activo: **Groq**")
 st.sidebar.markdown("---")
 sidebar_img_path = Path("assets/mascot.png")
 if sidebar_img_path.exists():
-    st.sidebar.image(str(sidebar_img_path), caption="Identificador de especies", use_container_width=True)
+    st.sidebar.image(
+        str(sidebar_img_path),
+        caption="Identificador de especies",
+        use_column_width=True,   # <- corrección
+    )
 else:
     st.sidebar.image(
         "https://upload.wikimedia.org/wikipedia/commons/3/37/African_Bush_Elephant.jpg",
         caption="Identificador de especies",
-        use_container_width=True,
+        use_column_width=True,   # <- corrección
     )
 
 # =========================
@@ -170,6 +174,7 @@ with tabs[1]:
 
         st.success("Respuesta:")
         st.write(ans)
+
 
 
 
