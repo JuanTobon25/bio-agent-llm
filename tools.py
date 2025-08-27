@@ -1,13 +1,20 @@
-# tools.py — FastEmbed + NumPy; sin FAISS / sin torch
+# tools.py — FastEmbed + NumPy + BM25 (sin FAISS / sin torch)
 from typing import List, Dict, Tuple
-import json, io
+import json
 import numpy as np
 import pandas as pd
 from fastembed import TextEmbedding
+from rank_bm25 import BM25Okapi
 
-# Modelo multilingüe soportado por FastEmbed (ES/EN)
-MULTILINGUAL_EMB_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+# Intentamos primero un modelo más potente; si falla, caemos a MiniLM
+EMB_MODEL_CANDIDATES = [
+    "intfloat/multilingual-e5-large",                    # mejor calidad (más pesado)
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",  # ligero y multilingüe
+]
 
+# -------------------------------
+# Utilidades de carga y vectores
+# -------------------------------
 def load_jsonl(path: str) -> List[Dict]:
     with open(path, "r", encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
@@ -17,65 +24,123 @@ def l2_normalize(mat: np.ndarray) -> np.ndarray:
     norms = np.clip(norms, 1e-12, None)
     return mat / norms
 
-def _create_embedder(model_name: str | None) -> TextEmbedding:
-    try:
-        return TextEmbedding(model_name=model_name) if model_name else TextEmbedding()
-    except ValueError:
-        return TextEmbedding()
+def _create_embedder_with_fallback() -> Tuple[TextEmbedding, str]:
+    last_err = None
+    for name in EMB_MODEL_CANDIDATES:
+        try:
+            return TextEmbedding(model_name=name), name
+        except Exception as e:
+            last_err = e
+            continue
+    # Fallback al default de fastembed si nada funcionó
+    return TextEmbedding(), "fastembed-default"
 
-def build_embeddings(texts: List[str], model_name: str | None = None) -> Tuple[TextEmbedding, np.ndarray]:
-    use_model = model_name or MULTILINGUAL_EMB_MODEL
-    embedder = _create_embedder(use_model)
+def build_embeddings(texts: List[str]) -> Tuple[TextEmbedding, np.ndarray, str]:
+    """
+    Genera embeddings normalizados (float32) para 'texts' y devuelve (embedder, embs, model_name_usado)
+    """
+    embedder, used = _create_embedder_with_fallback()
     vecs = list(embedder.embed(texts))          # lista de np.ndarray float32
     embs = np.vstack(vecs).astype(np.float32)
-    embs = l2_normalize(embs)
-    return embedder, embs
+    embs = l2_normalize(embs)                   # para similitud coseno con producto interno
+    return embedder, embs, used
 
+# -------------------------------
+# Índice híbrido (denso + BM25)
+# -------------------------------
 class VectorIndex:
-    """Índice simple con NumPy: coseno = producto interno tras normalizar."""
-    def __init__(self, embeddings: np.ndarray):
-        self.embs = embeddings  # [N, d] float32 normalizado
+    """
+    Índice con:
+      - Embeddings normalizados (coseno)
+      - BM25 clásico (palabras)
+      - Corpus original (texto)
+    Permite búsqueda híbrida: score = alpha * denso + (1-alpha) * bm25
+    """
+    def __init__(self, embeddings: np.ndarray, corpus_texts: List[str]):
+        self.embs = embeddings                              # [N, d] float32 normalizados
+        self.corpus = corpus_texts                          # lista[str]
+        # Construcción perezosa de BM25 (se arma cuando se necesita)
+        self._bm25 = None
+        self._tokenized = None
 
-    def search(self, query_vec: np.ndarray, k: int = 5) -> Tuple[np.ndarray, np.ndarray]:
-        if self.embs.size == 0:
-            return np.zeros((1, 0), dtype=np.float32), np.zeros((1, 0), dtype=np.int64)
-        k = max(1, min(k, self.embs.shape[0]))
-        scores = (query_vec @ self.embs.T).astype(np.float32)   # [1, N]
-        idxs = np.argpartition(-scores[0], kth=k-1)[:k]
-        order = np.argsort(-scores[0, idxs])
-        top_idxs = idxs[order]
-        top_scores = scores[0, top_idxs]
-        return top_scores[None, :], top_idxs[None, :]
+    def _ensure_bm25(self):
+        if self._bm25 is None or self._tokenized is None:
+            self._tokenized = [c.lower().split() for c in self.corpus]
+            self._bm25 = BM25Okapi(self._tokenized)
 
-# ---------- Concept KB (RAG) ----------
+    def dense_scores(self, query_vec: np.ndarray) -> np.ndarray:
+        """Devuelve los scores densos (coseno) contra TODO el corpus: [N]."""
+        return (query_vec @ self.embs.T).astype(np.float32)[0]  # [N]
+
+    def bm25_scores(self, query: str) -> np.ndarray:
+        """Scores BM25 para TODO el corpus: [N]."""
+        self._ensure_bm25()
+        return np.asarray(self._bm25.get_scores(query.lower().split()), dtype=np.float32)
+
+    def hybrid_search(self, query: str, embedder: TextEmbedding, k: int = 8, alpha: float = 0.6):
+        """
+        Mezcla scores densos y BM25 en [0,1] (normalizados min-max) y devuelve top-k:
+        Lista de tuplas: [(idx, mix_score, dense_score, bm25_score), ...]
+        """
+        # 1) denso
+        qvec = np.vstack(list(embedder.embed([query]))).astype(np.float32)
+        qvec = l2_normalize(qvec)
+        dense = self.dense_scores(qvec)  # [N]
+
+        # 2) BM25
+        bm25 = self.bm25_scores(query)   # [N]
+
+        # 3) normalización min-max (numéricamente estable)
+        def _minmax(x: np.ndarray) -> np.ndarray:
+            x_min, x_max = float(x.min()), float(x.max())
+            if x_max - x_min < 1e-8:
+                return np.zeros_like(x, dtype=np.float32)
+            return (x - x_min) / (x_max - x_min)
+
+        dense_n = _minmax(dense)
+        bm25_n  = _minmax(bm25)
+
+        # 4) mezcla
+        mix = alpha * dense_n + (1.0 - alpha) * bm25_n
+
+        # 5) top-k
+        N = len(self.corpus)
+        k = max(1, min(k, N))
+        top = np.argsort(-mix)[:k]
+        return [(int(i), float(mix[i]), float(dense_n[i]), float(bm25_n[i])) for i in top]
+
+# -------------------------------
+# KB de conceptos (RAG para Q&A)
+# -------------------------------
 def prepare_concept_kb(concepts_path: str):
     docs = load_jsonl(concepts_path)
     corpus = [f"{d['title']}. {d['text']}" for d in docs]
-    embedder, embs = build_embeddings(corpus, model_name=MULTILINGUAL_EMB_MODEL)
-    index = VectorIndex(embs)
+    embedder, embs, _used = build_embeddings(corpus)
+    index = VectorIndex(embs, corpus)
     return docs, corpus, embedder, index
 
-def encode_queries(embedder: TextEmbedding, queries: List[str]) -> np.ndarray:
-    qvecs = list(embedder.embed(queries))
-    q = np.vstack(qvecs).astype(np.float32)
-    q = l2_normalize(q)
-    return q
-
-def search_concepts(query: str, docs, corpus, embedder: TextEmbedding, index: VectorIndex, k: int = 4):
-    q = encode_queries(embedder, [query])
-    scores, idxs = index.search(q, k=k)
+def search_concepts(query: str, docs, corpus, embedder: TextEmbedding, index: VectorIndex, k: int = 8, alpha: float = 0.6):
+    """
+    Búsqueda híbrida para conceptos. Devuelve lista de dicts:
+      {id, title, text, score, dense, bm25}
+    """
+    hits = index.hybrid_search(query, embedder, k=k, alpha=alpha)
     results = []
-    for rank, i in enumerate(idxs[0]):
-        d = docs[int(i)]
+    for i, mix_s, d_s, b_s in hits:
+        d = docs[i]
         results.append({
             "id": d.get("id", f"doc_{i}"),
             "title": d.get("title", "Sin título"),
             "text": d.get("text", ""),
-            "score": float(scores[0][rank])
+            "score": float(mix_s),
+            "dense": float(d_s),
+            "bm25": float(b_s),
         })
     return results
 
-# ---------- Species KB ----------
+# -------------------------------
+# KB de especies (identificador)
+# -------------------------------
 def _species_record_to_text(s: Dict) -> str:
     common = s.get("common_names", [])
     if isinstance(common, str):
@@ -88,65 +153,29 @@ def _species_record_to_text(s: Dict) -> str:
 def prepare_species_kb(species_path: str):
     sp = load_jsonl(species_path)
     corpus = [_species_record_to_text(s) for s in sp]
-    embedder, embs = build_embeddings(corpus, model_name=MULTILINGUAL_EMB_MODEL)
-    index = VectorIndex(embs)
+    embedder, embs, _used = build_embeddings(corpus)
+    index = VectorIndex(embs, corpus)
     return sp, corpus, embedder, index
 
-def identify_species(description: str, sp, corpus, embedder: TextEmbedding, index: VectorIndex, k: int = 5):
-    q = encode_queries(embedder, [description])
-    scores, idxs = index.search(q, k=k)
+def identify_species(description: str, sp, corpus, embedder: TextEmbedding, index: VectorIndex, k: int = 8, alpha: float = 0.6):
+    """
+    Búsqueda híbrida para especies. Devuelve lista de dicts ordenados:
+      {rank, scientific_name, common_names, taxonomy, match_explanation, similarity, dense, bm25}
+    - similarity = score mezclado (0..1)
+    """
+    hits = index.hybrid_search(description, embedder, k=k, alpha=alpha)
     results = []
-    for rank, i in enumerate(idxs[0]):
-        s = sp[int(i)]
+    for rank, (i, mix_s, d_s, b_s) in enumerate(hits, start=1):
+        s = sp[i]
         results.append({
-            "rank": rank + 1,
+            "rank": rank,
             "scientific_name": s.get("scientific_name",""),
             "common_names": s.get("common_names", []),
             "taxonomy": s.get("taxonomy",""),
             "match_explanation": s.get("traits",""),
-            "similarity": float(scores[0][rank])
+            "similarity": float(mix_s),
+            "dense": float(d_s),
+            "bm25": float(b_s),
         })
     return results
-
-# === NUEVO: cargar KB adicional desde CSV/JSONL (sidebar) ===
-def parse_species_upload(uploaded_file) -> List[Dict]:
-    """Convierte un UploadedFile (CSV o JSONL) a lista de dicts con las claves requeridas."""
-    name = uploaded_file.name.lower()
-    data = uploaded_file.read()
-
-    if name.endswith(".csv"):
-        df = pd.read_csv(io.BytesIO(data))
-        # columnas mínimas: scientific_name, common_names, traits, taxonomy
-        df = df.fillna("")
-        records = []
-        for _, row in df.iterrows():
-            common = row.get("common_names", "")
-            if isinstance(common, str):
-                common = [x.strip() for x in common.split("|") if x.strip()]  # "jaguar|yaguareté"
-            records.append({
-                "scientific_name": str(row.get("scientific_name","")),
-                "common_names": common,
-                "traits": str(row.get("traits","")),
-                "taxonomy": str(row.get("taxonomy","")),
-            })
-        return records
-
-    if name.endswith(".jsonl"):
-        text = data.decode("utf-8")
-        recs = [json.loads(line) for line in text.splitlines() if line.strip()]
-        # normaliza common_names si viene como string
-        for r in recs:
-            if isinstance(r.get("common_names"), str):
-                r["common_names"] = [x.strip() for x in r["common_names"].split("|") if x.strip()]
-        return recs
-
-    raise ValueError("Formato no soportado. Usa CSV o JSONL.")
-
-def rebuild_species_kb(base_sp: List[Dict], extra_sp: List[Dict]):
-    """Une base + extra y reconstruye corpus/embeddings/índice."""
-    merged = list(base_sp) + list(extra_sp)
-    corpus = [_species_record_to_text(s) for s in merged]
-    embedder, embs = build_embeddings(corpus, model_name=MULTILINGUAL_EMB_MODEL)
-    index = VectorIndex(embs)
-    return merged, corpus, embedder, index
 
