@@ -20,11 +20,4 @@ kb/ # concepts.jsonl, species.jsonl
 assets/mono.jpg
 requirements.txt
 
-## 🚀 **Cómo correr**
-1) **Streamlit Cloud → Settings → Secrets**
-```toml
-GROQ_API_KEY = "tu_api_key_de_groq"
 
-**Local**
-pip install -r requirements.txt
-streamlit run app.py
