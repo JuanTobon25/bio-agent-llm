@@ -13,11 +13,19 @@
 - 🧹 **Sin** FLAN ni OCR (build liviano)
 
 ## 🗂 **Estructura**
-app.py # UI (2 pestañas)
-agent.py # Groq + prompts + re-ranking
-tools.py # embeddings + índice + utilidades
-kb/ # concepts.jsonl, species.jsonl
-assets/mono.jpg
-requirements.txt
+├── app.py # UI de Streamlit (2 pestañas)
+├── agent.py # Cliente Groq + prompts + re-ranking de especies
+├── tools.py # FastEmbed + índice NumPy y utilidades de KB
+├── kb/
+│ ├── concepts.jsonl # Conceptos (RAG) — un JSON por línea
+│ └── species.jsonl # Especies — un JSON por línea
+├── assets/
+│ └── mono.jpg # Imagen de la sidebar (con marco/sombra)
+├── requirements.txt
+└── README.md
 
+## 🚀 Cómo correr (local)
 
+1) Instala dependencias:
+```bash
+pip install -r requirements.txt
