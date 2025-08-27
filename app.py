@@ -8,7 +8,7 @@ from tools import (
 )
 from agent import BioLLM
 
-# OCR (opcional)
+# OCR (opcional; solo si easyocr está instalado)
 try:
     import easyocr
     from PIL import Image
@@ -19,11 +19,40 @@ st.set_page_config(page_title="Agente LLM de Biología", page_icon="🧬", layou
 
 # ---------- Sidebar: Configuración ----------
 st.sidebar.header("⚙️ Configuración del LLM")
-engine = st.sidebar.selectbox("Motor LLM", ["flan (local)", "groq (requiere API Key)"])
-groq_api_key = None
-if engine.startswith("groq"):
-    groq_api_key = st.sidebar.text_input("Groq API Key", type="password", help="Genera tu key en console.groq.com")
-groq_model = st.sidebar.selectbox("Modelo Groq", ["llama3-8b-8192", "llama3-70b-8192"]) if engine.startswith("groq") else None
+
+engine = st.sidebar.selectbox(
+    "Motor LLM",
+    ["flan (local)", "groq (requiere API Key)"],
+    index=0
+)
+
+# Leer secret si existe (Streamlit Cloud → Secrets)
+groq_key_secret = None
+try:
+    groq_key_secret = st.secrets["GROQ_API_KEY"]  # no se muestra el valor
+except Exception:
+    groq_key_secret = None
+
+# Campo para pegar la key manualmente si no usas Secrets
+groq_api_key = st.sidebar.text_input(
+    "Groq API Key (opcional)",
+    type="password",
+    help="Genera tu key en https://console.groq.com/keys"
+)
+
+groq_model = st.sidebar.selectbox(
+    "Modelo Groq",
+    ["llama3-8b-8192", "llama3-70b-8192"]
+) if engine.startswith("groq") else None
+
+# --- Determinar key efectiva (Secrets tiene prioridad, luego sidebar) ---
+effective_groq_key = groq_key_secret if groq_key_secret else (groq_api_key or None)
+
+# ✅ Si hay key disponible, forzar Groq para evitar descargar FLAN
+if effective_groq_key:
+    engine = "groq (requiere API Key)"
+
+st.sidebar.caption(f"🔌 Motor activo: {'Groq' if effective_groq_key else 'FLAN local'}")
 
 st.sidebar.markdown("---")
 st.sidebar.header("🔎 Recuperación")
@@ -32,31 +61,28 @@ level = st.sidebar.selectbox("Nivel de explicación", ["secundaria", "universita
 
 # ---------- Recursos (cacheados) ----------
 @st.cache_resource(show_spinner=False)
-def load_kb_and_models():
+def load_kb():
     docs, corpus_c, model_c, index_c = prepare_concept_kb("kb/concepts.jsonl")
     sp, corpus_s, model_s, index_s = prepare_species_kb("kb/species.jsonl")
     return (docs, corpus_c, model_c, index_c), (sp, corpus_s, model_s, index_s)
 
-(concepts_pack, species_pack) = load_kb_and_models()
+(concepts_pack, species_pack) = load_kb()
 docs, corpus_c, model_c, index_c = concepts_pack
 sp, corpus_s, model_s, index_s   = species_pack
 
 @st.cache_resource(show_spinner=False)
-def load_ocr_reader():
-    if easyocr is None:
-        return None
-    return easyocr.Reader(['es', 'en'], gpu=False)
-
-def make_llm():
-    if engine.startswith("groq") and groq_api_key:
-        return BioLLM(engine="groq", groq_api_key=groq_api_key, groq_model=groq_model)
+def make_llm_cached(engine_label: str, groq_model_name: str | None, effective_key: str | None):
+    # Si hay key (en Secrets o en la sidebar) y motor Groq, usar Groq
+    if engine_label.startswith("groq") and effective_key:
+        return BioLLM(engine="groq", groq_api_key=effective_key, groq_model=groq_model_name or "llama3-8b-8192")
+    # Si no hay key o no se selecciona Groq, usar FLAN local
     return BioLLM(engine="flan")
 
-llm = make_llm()
+llm = make_llm_cached(engine, groq_model, effective_groq_key)
 
 # ---------- UI ----------
 st.title("🧬 Agente LLM de Biología")
-st.caption("Q&A con RAG • Identificación de especies por descripción • Explicación de procesos • OCR→Análisis (Groq o local)")
+st.caption("Q&A con RAG • Identificación de especies por descripción • Explicación de procesos • OCR→Análisis")
 
 tabs = st.tabs(["Q&A (RAG)", "Identificar especie", "Explicar proceso", "OCR → Análisis"])
 
@@ -89,11 +115,11 @@ with tabs[1]:
         st.write("📊 Candidatos (mayor similitud primero):")
         st.dataframe(df, use_container_width=True)
 
-        # Opcional: explicación natural con LLM usando el top-1 como contexto
+        # Explicación natural con LLM usando el top-1 como contexto
         top = results[0]
         expl_prompt = (
-            "Explica de forma breve por qué la descripción podría corresponder a la especie siguiente, "
-            "enfocándote en los rasgos coincidentes.\n\n"
+            "Explica brevemente por qué la descripción del usuario podría corresponder a la especie siguiente, "
+            "enfocado en los rasgos coincidentes.\n\n"
             f"Descripción del usuario: {desc}\n"
             f"Especie candidata: {top['scientific_name']} ({', '.join(top['common_names'])})\n"
             f"Rasgos conocidos: {top['match_explanation']}\n"
@@ -112,15 +138,20 @@ with tabs[2]:
         st.success("Explicación:")
         st.write(explanation)
 
-# --- Tab 4: OCR → Análisis (tu ejemplo integrado) ---
+# --- Tab 4: OCR → Análisis (opcional) ---
 with tabs[3]:
     st.subheader("🖼️ OCR → Análisis con LLM")
     if easyocr is None or Image is None:
-        st.warning("Instala dependencias de OCR (easyocr, Pillow) para usar esta pestaña.")
+        st.warning("Para usar esta pestaña, incluye easyocr y Pillow en requirements.txt. (Ojo: enlentece el deploy).")
     else:
         col1, col2 = st.columns(2, gap="large")
         with col1:
             up = st.file_uploader("Sube imagen (jpg, png, jpeg)", type=["png", "jpg", "jpeg"])
+
+            @st.cache_resource(show_spinner=False)
+            def load_ocr_reader():
+                return easyocr.Reader(['es', 'en'], gpu=False)
+
             reader = load_ocr_reader()
             if up is not None:
                 image = Image.open(up)
