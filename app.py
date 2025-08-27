@@ -18,7 +18,7 @@ K_DEFAULT = 8          # Top-K para recuperación semántica (más recall para r
 CONF_THRESHOLD = 0.45  # Umbral para avisos de baja confianza
 
 # Imagen de la sidebar (cámbiala a tu gusto)
-SIDEBAR_IMAGE_LOCAL = Path("assets/mascot.png")  # sube tu imagen con este nombre
+SIDEBAR_IMAGE_LOCAL = Path("assets/Mono.jpg")  # sube tu imagen con este nombre
 SIDEBAR_IMAGE_URL   = "https://upload.wikimedia.org/wikipedia/commons/3/37/African_Bush_Elephant.jpg"
 
 def _listify_str(x):
@@ -57,7 +57,7 @@ st.sidebar.caption("🔌 Motor activo: **Groq**")
 
 st.sidebar.markdown("---")
 if SIDEBAR_IMAGE_LOCAL.exists():
-    st.sidebar.image(str(SIDEBAR_IMAGE_LOCAL), caption="Identificador de especies", use_column_width=True)
+    st.sidebar.image(str(SIDEBAR_IMAGE_LOCAL), caption="", use_column_width=True)
 else:
     st.sidebar.image(SIDEBAR_IMAGE_URL, caption="Identificador de especies", use_column_width=True)
 
