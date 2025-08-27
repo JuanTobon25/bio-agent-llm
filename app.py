@@ -1,4 +1,4 @@
-# app.py  — Groq-only, sin pestaña OCR
+# app.py — Groq-only, con re-ranking de especies y sección unificada de conceptos/procesos
 import streamlit as st
 import pandas as pd
 
@@ -48,8 +48,6 @@ st.sidebar.markdown("---")
 st.sidebar.header("🔎 Recuperación")
 k = st.sidebar.slider("Top-K (búsqueda semántica)", 1, 8, 5)
 level = st.sidebar.selectbox("Nivel de explicación", ["secundaria", "universitario", "divulgación"], index=1)
-
-# (Opcional) Umbral de confianza para identificar especie
 conf_threshold = st.sidebar.slider("Umbral de confianza (identificador)", 0.30, 0.80, 0.45, 0.01)
 
 # =========================
@@ -57,7 +55,6 @@ conf_threshold = st.sidebar.slider("Umbral de confianza (identificador)", 0.30, 
 # =========================
 @st.cache_resource(show_spinner=False)
 def load_kb():
-    # Con fastembed: prepare_* devuelve (docs/sp, corpus, embedder, index)
     docs, corpus_c, embedder_c, index_c = prepare_concept_kb("kb/concepts.jsonl")
     sp, corpus_s, embedder_s, index_s = prepare_species_kb("kb/species.jsonl")
     return (docs, corpus_c, embedder_c, index_c), (sp, corpus_s, embedder_s, index_s)
@@ -75,11 +72,10 @@ llm = make_llm_cached(groq_model, effective_groq_key)
 # =========================
 # UI
 # =========================
-st.title("🧬 Agente LLM de Biología (Groq-only)")
-st.caption("Identificar especies por descripción • Q&A de conceptos con RAG • Explicación de procesos")
+st.title("🧬 Agente LLM de Biología")
+st.caption("Identificador de especies por descripción • Conceptos y procesos (RAG + explicación)")
 
-# Solo 3 pestañas enfocadas
-tabs = st.tabs(["Identificar especie", "Conceptos (Q&A)", "Explicar proceso"])
+tabs = st.tabs(["Identificar especie", "Conceptos y procesos"])
 
 # --- Tab 1: Identificar especie ---
 with tabs[0]:
@@ -88,57 +84,77 @@ with tabs[0]:
         "Describe rasgos, color, hábitat, comportamiento…",
         "Mamífero muy grande con orejas grandes y trompa; habita sabanas africanas."
     )
+    extra = st.text_input("Filtros opcionales (región/hábitat/palabras clave — p. ej., 'Andes, bosque nublado')", "")
     run_id = st.button("Identificar", type="primary", key="id_btn")
+
     if run_id and desc.strip():
+        # Recuperación semántica base
         results = identify_species(desc, sp, corpus_s, embedder_s, index_s, k=k)
+
+        # Boost simple por palabras clave (si aparecen en traits/taxonomía/nombres)
+        if extra.strip():
+            kw = extra.lower()
+            for r in results:
+                blob = " ".join([
+                    r["scientific_name"],
+                    " ".join(r["common_names"]),
+                    r["taxonomy"],
+                    r["match_explanation"],
+                ]).lower()
+                if any(token.strip() and token.strip() in blob for token in kw.split(",")):
+                    r["similarity"] = float(min(1.0, r["similarity"] + 0.05))  # pequeño empujón
+            # reordenar
+            results = sorted(results, key=lambda x: x["similarity"], reverse=True)
+
         df = pd.DataFrame(results)
         st.write("📊 Candidatos (mayor similitud primero):")
         st.dataframe(df, use_container_width=True)
 
-        top = results[0]
-        # Aviso si la confianza es baja
-        if top["similarity"] < conf_threshold:
+        # Re-ranking por LLM (usa los top-K actuales)
+        rr = llm.rerank_species(desc, results, top_n=min(k, len(results)))
+        best = rr.get("best", {})
+        confidence = rr.get("confidence", 0.0)
+        notes = rr.get("notes", "")
+
+        # Mensajes de confianza
+        if results and results[0]["similarity"] < conf_threshold:
             st.warning(
-                "La confianza es baja. Intenta añadir rasgos distintivos (patrones de pelaje/plumas, longitud del pico, "
-                "forma de hojas, hábitat preciso, comportamiento, región geográfica)."
+                "La confianza del índice es baja. Añade rasgos distintivos (patrones, medidas, región exacta) "
+                "o sube más descriptores."
             )
 
-        # Explicación natural con LLM usando el top-1 como contexto
-        expl_prompt = (
-            "Explica brevemente por qué la descripción del usuario podría corresponder a la especie siguiente, "
-            "enfocado en los rasgos coincidentes. Si hay rasgos que NO coinciden, menciónalos también.\n\n"
-            f"Descripción del usuario: {desc}\n"
-            f"Especie candidata: {top['scientific_name']} ({', '.join(top['common_names'])})\n"
-            f"Rasgos conocidos: {top['match_explanation']}\n"
-            "Explicación:"
+        st.success("🔎 Veredicto del LLM (re-ranking):")
+        st.write(
+            f"**{best.get('scientific_name', '—')}** "
+            f"({', '.join(best.get('common_names', []))}) — "
+            f"confianza LLM: **{confidence:.2f}**"
         )
-        natural_expl = llm.generate(expl_prompt, max_new_tokens=200)
-        st.info(natural_expl)
+        if best.get("reason"):
+            st.info(best["reason"])
+        if notes:
+            st.caption(notes)
 
-# --- Tab 2: Conceptos (Q&A con RAG) ---
+# --- Tab 2: Conceptos y procesos (unificados) ---
 with tabs[1]:
-    st.subheader("📚 Preguntas de Biología con contexto (RAG)")
-    q = st.text_input("Ej.: ¿Qué ocurre en la fase luminosa de la fotosíntesis?")
-    ask = st.button("Responder", type="primary", key="qa_btn")
+    st.subheader("📚 Conceptos y procesos (con RAG)")
+    mode = st.radio("Modo", ["Pregunta (Q&A)", "Explicar proceso"], horizontal=True)
+    text = st.text_input("Escribe tu pregunta o el proceso a explicar", "¿Qué ocurre en la fase luminosa de la fotosíntesis?")
+    run_cp = st.button("Generar", type="primary", key="cp_btn")
 
-    if ask and q.strip():
-        hits = search_concepts(q, docs, corpus_c, embedder_c, index_c, k=k)
+    if run_cp and text.strip():
+        hits = search_concepts(text, docs, corpus_c, embedder_c, index_c, k=k)
         with st.expander("🔎 Contexto recuperado"):
             for h in hits:
                 st.markdown(f"**{h['title']}** — score: `{h['score']:.3f}`")
                 st.write(h["text"])
                 st.markdown("---")
-        ans = llm.answer_with_context(q, hits)
+
+        if mode.startswith("Explicar"):
+            ans = llm.answer_concepts_or_process(text, hits, mode="process")
+        else:
+            ans = llm.answer_concepts_or_process(text, hits, mode="qa")
+
         st.success("Respuesta:")
         st.write(ans)
 
-# --- Tab 3: Explicar proceso ---
-with tabs[2]:
-    st.subheader("🧪 Explicación de procesos biológicos")
-    topic = st.text_input("Proceso (p. ej., mitosis, ósmosis, transcripción y traducción)", "mitosis")
-    run_explain = st.button("Explicar", type="primary", key="exp_btn")
-    if run_explain and topic.strip():
-        explanation = llm.explain_process_steps(topic, level=level)
-        st.success("Explicación:")
-        st.write(explanation)
 
