@@ -1,4 +1,4 @@
-# app.py — Groq-only, sidebar simplificada con imagen (robusto para common_names)
+# app.py — Groq-only, respuestas dentro del recuadro verde + sidebar con imagen configurable
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -16,6 +16,10 @@ st.set_page_config(page_title="Agente LLM de Biología", page_icon="🧬", layou
 # =========================
 K_DEFAULT = 5          # Top-K para recuperación semántica
 CONF_THRESHOLD = 0.45  # Umbral de confianza (identificador)
+
+# Imagen de la sidebar (cámbiala a tu gusto)
+SIDEBAR_IMAGE_LOCAL = Path("assets/mascot.png")  # sube tu imagen con este nombre
+SIDEBAR_IMAGE_URL   = "https://upload.wikimedia.org/wikipedia/commons/3/37/African_Bush_Elephant.jpg"  # o cambia la URL
 
 def _listify_str(x):
     """Convierte x en lista de strings segura para usar en ', '.join(...)."""
@@ -64,19 +68,10 @@ st.sidebar.caption("🔌 Motor activo: **Groq**")
 
 # — Imagen en la sidebar —
 st.sidebar.markdown("---")
-sidebar_img_path = Path("assets/mascot.png")
-if sidebar_img_path.exists():
-    st.sidebar.image(
-        str(sidebar_img_path),
-        caption="Identificador de especies",
-        use_column_width=True,
-    )
+if SIDEBAR_IMAGE_LOCAL.exists():
+    st.sidebar.image(str(SIDEBAR_IMAGE_LOCAL), caption="Identificador de especies", use_column_width=True)
 else:
-    st.sidebar.image(
-        "https://upload.wikimedia.org/wikipedia/commons/3/37/African_Bush_Elephant.jpg",
-        caption="Identificador de especies",
-        use_column_width=True,
-    )
+    st.sidebar.image(SIDEBAR_IMAGE_URL, caption="Identificador de especies", use_column_width=True)
 
 # =========================
 # Recursos cacheados
@@ -150,20 +145,18 @@ with tabs[0]:
                 "o más descriptores."
             )
 
-        # —— Línea robusta para nombres comunes ——
+        # —— Veredicto en recuadro verde (todo dentro del success) ——
         common_names_str = ", ".join(_listify_str(best.get("common_names")))
         sci_name = best.get("scientific_name", "—")
+        verdict_md = f"""**🔎 Veredicto del LLM (re-ranking)**  
+**{sci_name}** ({common_names_str}) — confianza LLM: **{confidence:.2f}**"""
 
-        st.success("🔎 Veredicto del LLM (re-ranking):")
-        st.write(
-            f"**{sci_name}** "
-            f"({common_names_str}) — "
-            f"confianza LLM: **{confidence:.2f}**"
-        )
         if best.get("reason"):
-            st.info(str(best["reason"]))
+            verdict_md += f"\n\n**Motivo:** {best['reason']}"
         if notes:
-            st.caption(str(notes))
+            verdict_md += f"\n\n*{notes}*"
+
+        st.success(verdict_md)
 
 # --- Tab 2: Conceptos y procesos (unificados) ---
 with tabs[1]:
@@ -185,9 +178,7 @@ with tabs[1]:
         else:
             ans = llm.answer_concepts_or_process(text, hits, mode="qa")
 
-        st.success("Respuesta:")
-        st.write(ans)
-
-
+        # ✅ Respuesta directamente en el recuadro verde
+        st.success(ans)
 
 
