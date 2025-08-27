@@ -22,6 +22,7 @@ class BioLLM:
         self.client = Groq(api_key=groq_api_key)
         self.groq_model = groq_model
 
+    # ---------------- Core chat ----------------
     def _chat(self, messages, max_tokens: int = 220, temperature: float = 0.1) -> str:
         cc = self.client.chat.completions.create(
             messages=messages,
@@ -47,7 +48,7 @@ class BioLLM:
         except Exception as e:
             return f"No pude completar con Groq: {e}"
 
-    # ---------- RAG mejorado (con 'fuentes') ----------
+    # ---------------- RAG / Conceptos & Procesos ----------------
     def answer_with_context(
         self,
         question: str,
@@ -76,7 +77,7 @@ class BioLLM:
         """
         Unifica Q&A (RAG) y Explicar proceso:
           - mode='qa': respuesta corta usando SOLO contexto.
-          - mode='process': pasos numerados y estructuras clave, usando SOLO contexto si existe, o conocimiento general si no hay contexto.
+          - mode='process': pasos numerados con estructuras clave; usa contexto si hay, si no, conocimiento general.
         """
         context = "\n\n".join([f"- {c['title']}: {c['text']}" for c in context_snippets]) if context_snippets else ""
         titles = ", ".join([c["title"] for c in context_snippets]) if context_snippets else "—"
@@ -98,51 +99,60 @@ class BioLLM:
             )
         return self.generate(prompt, max_new_tokens=max_new_tokens, temperature=0.0)
 
-    # ---------- Re-ranking por LLM para identificación de especies ----------
+    # ---------------- Re-ranking de especies ----------------
     def rerank_species(self, description: str, candidates: List[Dict], top_n: int = 5) -> Dict:
         """
         Reordena/valida candidatos con el LLM y devuelve:
           { "best": {scientific_name, common_names, reason}, "confidence": float, "notes": str }
         """
-        subset = candidates[:top_n]
+        if not candidates:
+            return {"best": {}, "confidence": 0.0, "notes": "No hay candidatos para reordenar."}
+
+        subset = candidates[: max(1, min(top_n, len(candidates)))]
         table_lines = []
         for c in subset:
+            common = ", ".join(c.get("common_names", []))
             line = (
-                f"- name={c['scientific_name']}; common={', '.join(c['common_names'])}; "
-                f"traits={c['match_explanation']}; taxonomy={c['taxonomy']}; similarity={c.get('similarity', 0):.3f}"
+                f"- name={c.get('scientific_name','')}; common={common}; "
+                f"traits={c.get('match_explanation','')}; taxonomy={c.get('taxonomy','')}; "
+                f"similarity={float(c.get('similarity', 0.0)):.3f}"
             )
             table_lines.append(line)
         table = "\n".join(table_lines)
 
         system = (
             "You are a careful species identifier. Compare the user description with each candidate and pick the single "
-            "most plausible species. Penalize candidates with mismatching key traits (e.g., 'trunk' vs 'no trunk'). "
+            "most plausible species. Penalize candidates with mismatching key traits. "
             "Return strictly a JSON object with keys: best (object with scientific_name, common_names, reason), "
-            "confidence (0-1), notes."
+            "confidence (0-1), notes. Reply in the same language as the user's description when writing 'reason' and 'notes'."
         )
-        user = (
-            f"User description: {description}\n\nCandidates:\n{table}\n\n"
-            "Respond in JSON only."
-        )
+        user = f"User description: {description}\n\nCandidates:\n{table}\n\nRespond in JSON only."
+
         try:
             raw = self._chat(
                 [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                max_tokens=320,
+                max_tokens=380,
                 temperature=0.0,
             )
-            data = json.loads(raw)
-            return data
+            # Intenta extraer un JSON válido del texto de salida
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start != -1 and end != -1:
+                data = json.loads(raw[start:end + 1])
+                return data
+            raise ValueError("Respuesta sin JSON válido")
         except Exception:
-            # Fallback simple si el JSON falla: elige el top-1 original
+            # Fallback: usa top-1 del ranking semántico
             top = subset[0]
             return {
                 "best": {
-                    "scientific_name": top["scientific_name"],
-                    "common_names": top["common_names"],
+                    "scientific_name": top.get("scientific_name", ""),
+                    "common_names": top.get("common_names", []),
                     "reason": "Elegido por máxima similitud del índice semántico.",
                 },
                 "confidence": float(top.get("similarity", 0.5)),
                 "notes": "Fallo al parsear JSON del LLM; se usó el ranking semántico.",
             }
+
 
 
