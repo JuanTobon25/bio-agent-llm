@@ -1,28 +1,70 @@
-# tools.py — FastEmbed + NumPy + BM25 (ligero por defecto, embedder compartido)
+ # tools.py — FastEmbed + NumPy + BM25 (ligero, robusto y con embedder compartido)
 from typing import List, Dict, Tuple
 import json
 import numpy as np
-import pandas as pd
 from fastembed import TextEmbedding
 from rank_bm25 import BM25Okapi
 
-# ⚠️ Orden "ligero primero" para evitar OOM/tiempos largos en Streamlit Cloud
+# Intentamos modelos en orden: primero ligero (rápido), luego pesado (mejor calidad)
 EMB_MODEL_CANDIDATES = [
     "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",   # ligero y multilingüe
     "intfloat/multilingual-e5-large",                                 # más pesado (calidad >, costo >>)
 ]
 
-# ---------- Utilidades ----------
+# =========================
+# Carga de JSON (robusta)
+# =========================
 def load_jsonl(path: str) -> List[Dict]:
+    """
+    Carga:
+      - JSONL (un JSON por línea), o
+      - un JSON array completo [ {...}, {...} ].
+    Tolera BOM, líneas vacías y comentarios que empiezan con // o #.
+    Si hay error, reporta línea + fragmento.
+    """
     with open(path, "r", encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+        raw = f.read()
 
+    raw = raw.lstrip("\ufeff")              # quita BOM si existe
+    s = raw.lstrip()
+
+    # Caso 1: el archivo es un JSON array completo
+    if s.startswith("["):
+        try:
+            data = json.loads(s)
+            if not isinstance(data, list):
+                raise ValueError("El archivo parece un array JSON pero no es una lista.")
+            return data
+        except Exception as e:
+            raise ValueError(f"{path}: JSON array inválido: {e}")
+
+    # Caso 2: JSONL (un objeto por línea)
+    out = []
+    for ln, line in enumerate(raw.splitlines(), start=1):
+        cur = line.strip()
+        if not cur:
+            continue
+        if cur.startswith("//") or cur.startswith("#"):
+            continue
+        try:
+            obj = json.loads(cur)
+            out.append(obj)
+        except json.JSONDecodeError as e:
+            frag = (cur[:140] + "…") if len(cur) > 140 else cur
+            raise ValueError(f"Error parseando {path} en línea {ln}: {e}. Fragmento: {frag}")
+    return out
+
+# =========================
+# Utilidades de vectores
+# =========================
 def l2_normalize(mat: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(mat, axis=1, keepdims=True)
     norms = np.clip(norms, 1e-12, None)
     return mat / norms
 
-# ---------- Embedder compartido (una sola instancia) ----------
+# =========================
+# Embedder compartido
+# =========================
 _SHARED_EMBEDDER: TextEmbedding | None = None
 _SHARED_MODEL_NAME: str | None = None
 
@@ -30,7 +72,7 @@ def get_shared_embedder() -> Tuple[TextEmbedding, str]:
     """Crea una sola instancia de TextEmbedding y la reutiliza para conceptos y especies."""
     global _SHARED_EMBEDDER, _SHARED_MODEL_NAME
     if _SHARED_EMBEDDER is not None:
-        return _SHARED_EMBEDDER, _SHARED_MODEL_NAME or "unknown"
+        return _SHARED_EMBEDDER, (_SHARED_MODEL_NAME or "unknown")
 
     last_err = None
     for name in EMB_MODEL_CANDIDATES:
@@ -56,7 +98,9 @@ def embed_texts(texts: List[str]) -> Tuple[np.ndarray, str]:
     embs = l2_normalize(embs)
     return embs, used
 
-# ---------- Índice híbrido (denso + BM25) ----------
+# =========================
+# Índice híbrido (denso + BM25)
+# =========================
 class VectorIndex:
     """
     Índice con:
@@ -89,8 +133,8 @@ class VectorIndex:
         alpha pondera embeddings (0..1).
         """
         # 1) denso
-        embs, _used = embed_texts([query])        # [1, d] normalizado
-        dense = self.dense_scores(embs)           # [N]
+        qvec, _ = embed_texts([query])            # [1, d] normalizado
+        dense = self.dense_scores(qvec)           # [N]
 
         # 2) BM25
         bm25 = self.bm25_scores(query)            # [N]
@@ -114,12 +158,15 @@ class VectorIndex:
         top = np.argsort(-mix)[:k]
         return [(int(i), float(mix[i]), float(d_n[i]), float(b_n[i])) for i in top]
 
-# ---------- KB de conceptos ----------
+# =========================
+# KB de conceptos (RAG)
+# =========================
 def prepare_concept_kb(concepts_path: str):
     docs = load_jsonl(concepts_path)
     corpus = [f"{d['title']}. {d['text']}" for d in docs]
-    embs, used = embed_texts(corpus)
+    embs, _used = embed_texts(corpus)
     index = VectorIndex(embs, corpus)
+    # devolvemos el embedder por compatibilidad con app.py
     return docs, corpus, get_shared_embedder()[0], index
 
 def search_concepts(query: str, docs, corpus, embedder: TextEmbedding, index: VectorIndex, k: int = 8, alpha: float = 0.6):
@@ -137,7 +184,9 @@ def search_concepts(query: str, docs, corpus, embedder: TextEmbedding, index: Ve
         })
     return results
 
-# ---------- KB de especies ----------
+# =========================
+# KB de especies (identificador)
+# =========================
 def _species_record_to_text(s: Dict) -> str:
     common = s.get("common_names", [])
     if isinstance(common, str):
@@ -150,7 +199,7 @@ def _species_record_to_text(s: Dict) -> str:
 def prepare_species_kb(species_path: str):
     sp = load_jsonl(species_path)
     corpus = [_species_record_to_text(s) for s in sp]
-    embs, used = embed_texts(corpus)
+    embs, _used = embed_texts(corpus)
     index = VectorIndex(embs, corpus)
     return sp, corpus, get_shared_embedder()[0], index
 
@@ -165,10 +214,8 @@ def identify_species(description: str, sp, corpus, embedder: TextEmbedding, inde
             "common_names": s.get("common_names", []),
             "taxonomy": s.get("taxonomy",""),
             "match_explanation": s.get("traits",""),
-            "similarity": float(mix_s),
+            "similarity": float(mix_s),  # score mezclado 0..1
             "dense": float(d_s),
             "bm25": float(b_s),
         })
     return results
-
-
