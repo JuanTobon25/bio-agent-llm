@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -26,7 +27,6 @@ CONF_THRESHOLD = 0.45
 SIDEBAR_IMAGE_LOCAL = Path("assets/Mono.jpg")
 SIDEBAR_IMAGE_URL   = "https://upload.wikimedia.org/wikipedia/commons/3/37/African_Bush_Elephant.jpg"
 
-# -------- Patch: tarjeta con borde + sombra para la foto de la sidebar --------
 def sidebar_photo_card(image_path: Path, url_fallback: str, caption: str = ""):
     if image_path.exists():
         data = image_path.read_bytes()
@@ -86,7 +86,6 @@ if not effective_groq_key:
 
 groq_model = st.sidebar.selectbox("Modelo Groq", ["llama3-70b-8192", "llama3-8b-8192"], index=0)
 st.sidebar.caption("🔌 Motor activo: **Groq**")
-
 st.sidebar.markdown("---")
 sidebar_photo_card(SIDEBAR_IMAGE_LOCAL, SIDEBAR_IMAGE_URL, caption="")
 
@@ -115,7 +114,7 @@ llm = make_llm_cached(groq_model, effective_groq_key)
 st.title("🧬 Agente LLM de Biología")
 st.caption("Identificador de especies por descripción • Conceptos y procesos • EDA y Clasificación")
 
-tabs = st.tabs(["Identificar especie", "Conceptos y procesos", "EDA + Clasificación"])
+tabs = st.tabs(["Identificar especie", "Conceptos y procesos", "EDA + Clasificación + Chat"])
 
 # --- Tab 1: Identificar especie ---
 with tabs[0]:
@@ -125,7 +124,6 @@ with tabs[0]:
         "Mamífero muy grande con orejas grandes y trompa; habita sabanas africanas."
     )
     run_id = st.button("Identificar", type="primary", key="id_btn")
-
     if run_id and desc.strip():
         results = identify_species(desc, sp, corpus_s, embedder_s, index_s, k=K_DEFAULT)
         st.write("📊 Candidatos (mayor similitud primero):")
@@ -145,7 +143,6 @@ with tabs[1]:
     mode = st.radio("Modo", ["Pregunta (Q&A)", "Explicar proceso"], horizontal=True)
     text = st.text_input("Escribe tu pregunta o el proceso a explicar", "¿Qué ocurre en la fase luminosa de la fotosíntesis?")
     run_cp = st.button("Generar", type="primary", key="cp_btn")
-
     if run_cp and text.strip():
         hits = search_concepts(text, docs, corpus_c, embedder_c, index_c, k=K_DEFAULT)
         with st.expander("🔎 Contexto recuperado"):
@@ -156,9 +153,9 @@ with tabs[1]:
         ans = llm.answer_concepts_or_process(text, hits, mode="process" if mode.startswith("Explicar") else "qa")
         st.success(ans)
 
-# --- Tab 3: EDA + Clasificación ---
+# --- Tab 3: EDA + Clasificación + Chat basado en dataset ---
 with tabs[2]:
-    st.subheader("📊 Análisis Exploratorio de Datos + Clasificación")
+    st.subheader("📊 EDA + Clasificación + Chat sobre dataset")
     uploaded = st.file_uploader("Sube un archivo CSV con tu dataset de especies", type=["csv"])
     if uploaded:
         df = pd.read_csv(uploaded)
@@ -166,28 +163,29 @@ with tabs[2]:
         st.dataframe(df.head())
         st.write(f"Shape: {df.shape}")
 
-        # Nulos
+        # EDA
         st.write("### Valores nulos:")
         st.dataframe(df.isnull().sum())
-
-        # Descriptivas
         st.write("### Estadísticas descriptivas:")
         st.write(df.describe(include="all"))
 
-        # Visualizaciones
         st.write("### Histogramas de variables numéricas")
-        fig, ax = plt.subplots(figsize=(10,5))
-        df.select_dtypes(include=np.number).hist(ax=ax)
-        st.pyplot(fig)
+        numeric_cols = df.select_dtypes(include=np.number).columns
+        if len(numeric_cols) > 0:
+            for col in numeric_cols:
+                fig, ax = plt.subplots()
+                sns.histplot(df[col].dropna(), kde=True, ax=ax)
+                st.pyplot(fig)
 
         st.write("### Mapa de calor de correlaciones")
-        fig, ax = plt.subplots(figsize=(8,6))
-        sns.heatmap(df.select_dtypes(include=np.number).corr(), annot=True, cmap="coolwarm", ax=ax)
-        st.pyplot(fig)
+        if len(numeric_cols) > 1:
+            fig, ax = plt.subplots(figsize=(8,6))
+            sns.heatmap(df[numeric_cols].corr(), annot=True, cmap="coolwarm", ax=ax)
+            st.pyplot(fig)
 
-        # --- Clasificación ---
-        st.write("### Entrenamiento de clasificador (Random Forest)")
+        # Clasificación
         if "Especie" in df.columns:
+            st.write("### Entrenamiento de clasificador (Random Forest)")
             X = df.drop("Especie", axis=1)
             y = df["Especie"]
 
@@ -209,4 +207,17 @@ with tabs[2]:
                 sample = pd.DataFrame([user_input])
                 pred = clf.predict(sample)[0]
                 st.success(f"🔮 La especie predicha es: **{pred}**")
+
+            # Chat basado en dataset
+            st.subheader("💬 Pregunta por especie")
+            question = st.text_input("Escribe tu pregunta (ejemplo: 'Háblame de Panthera leo')")
+            if question:
+                matched = df[df['Especie'].str.contains(question, case=False, na=False)]
+                if not matched.empty:
+                    for _, row in matched.iterrows():
+                        info_text = " ".join([f"{col}: {row[col]}" for col in df.columns if col != "Especie"])
+                        st.info(f"**{row['Especie']}** → {info_text}")
+                else:
+                    st.warning("No encontré esa especie en el dataset.")
+
 
