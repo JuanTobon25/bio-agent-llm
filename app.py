@@ -183,7 +183,7 @@ with tabs[2]:
             st.pyplot(fig)
 
         # ====== Clasificación ======
-        clf, X, y = None, None, None
+        clf, X, y, X_test, y_test = None, None, None, None, None
         if "Especie" in df.columns:
             st.write("### Entrenamiento de clasificador (Random Forest)")
             X = df.drop("Especie", axis=1)
@@ -212,19 +212,43 @@ with tabs[2]:
         question = st.text_input("Escribe tu pregunta sobre el dataset o una especie")
 
         if question:
-            # Resumir dataset y modelo como contexto
+            # Resumen general del dataset
             dataset_summary = f"Columnas: {list(df.columns)}. Total de filas: {len(df)}."
             if clf:
                 dataset_summary += f" Clasificador RandomForest entrenado con precisión {clf.score(X_test, y_test):.2f}."
-            
-            # Pasar contexto al LLM
+
+            # Buscar coincidencias en columna Especie
+            matched_rows = None
+            if "Especie" in df.columns:
+                matched_rows = df[df["Especie"].str.contains(question, case=False, na=False)]
+
+            example_text = ""
+            if matched_rows is not None and not matched_rows.empty:
+                st.write("### Ejemplos encontrados en el dataset:")
+                st.dataframe(matched_rows.head(3))  # mostrar en pantalla
+                # Crear texto de contexto con máximo 3 filas
+                example_text = "\n\n".join([
+                    " | ".join([f"{col}: {row[col]}" for col in df.columns])
+                    for _, row in matched_rows.head(3).iterrows()
+                ])
+
+            # Contexto para el LLM
             context_text = f"""
-            Aquí tienes un resumen del dataset cargado: 
+            Resumen del dataset:
             {dataset_summary}
+
+            Ejemplos relevantes:
+            {example_text if example_text else "No se encontraron ejemplos exactos en el dataset."}
 
             Pregunta del usuario: {question}
             """
-            answer = llm.answer_concepts_or_process(question, [{"title": "dataset", "text": context_text, "score": 1.0}], mode="qa")
+
+            answer = llm.answer_concepts_or_process(
+                question,
+                [{"title": "dataset", "text": context_text, "score": 1.0}],
+                mode="qa"
+            )
             st.success(answer)
+
 
 
