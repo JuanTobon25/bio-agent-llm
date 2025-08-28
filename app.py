@@ -163,21 +163,47 @@ with tabs[2]:
         st.write(f"Shape: {df.shape}")
 
         # ====== EDA ======
-        st.write("### Valores nulos:")
-        st.dataframe(df.isnull().sum())
-        st.write("### Estadísticas descriptivas:")
-        st.write(df.describe(include="all"))
+        st.write("## 🔍 Exploratory Data Analysis (EDA)")
 
-        st.write("### Histogramas de variables numéricas")
+        # 1. Valores nulos
+        st.write("### Valores nulos por columna")
+        st.dataframe(df.isnull().sum())
+
+        # 2. Estadísticas descriptivas
+        st.write("### Estadísticas descriptivas")
+        st.dataframe(df.describe(include="all"))
+
+        # 3. Detección de outliers (solo numéricos)
         numeric_cols = df.select_dtypes(include=np.number).columns
         if len(numeric_cols) > 0:
+            st.write("### Boxplots (detección de outliers)")
+            for col in numeric_cols:
+                fig, ax = plt.subplots()
+                sns.boxplot(x=df[col], ax=ax)
+                st.pyplot(fig)
+
+        # 4. Histogramas de variables numéricas
+        if len(numeric_cols) > 0:
+            st.write("### Histogramas de variables numéricas")
             for col in numeric_cols:
                 fig, ax = plt.subplots()
                 sns.histplot(df[col].dropna(), kde=True, ax=ax)
+                ax.set_title(f"Distribución de {col}")
                 st.pyplot(fig)
 
-        st.write("### Mapa de calor de correlaciones")
+        # 5. Distribución de variables categóricas
+        cat_cols = df.select_dtypes(include="object").columns
+        if len(cat_cols) > 0:
+            st.write("### Distribución de variables categóricas")
+            for col in cat_cols:
+                fig, ax = plt.subplots()
+                df[col].value_counts().plot(kind="bar", ax=ax)
+                ax.set_title(f"Distribución de {col}")
+                st.pyplot(fig)
+
+        # 6. Correlaciones
         if len(numeric_cols) > 1:
+            st.write("### Mapa de calor de correlaciones")
             fig, ax = plt.subplots(figsize=(8,6))
             sns.heatmap(df[numeric_cols].corr(), annot=True, cmap="coolwarm", ax=ax)
             st.pyplot(fig)
@@ -185,7 +211,7 @@ with tabs[2]:
         # ====== Clasificación ======
         clf, X, y, X_test, y_test = None, None, None, None, None
         if "Especie" in df.columns:
-            st.write("### Entrenamiento de clasificador (Random Forest)")
+            st.write("## 🤖 Entrenamiento de clasificador (Random Forest)")
             X = df.drop("Especie", axis=1)
             y = df["Especie"]
 
@@ -195,7 +221,7 @@ with tabs[2]:
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
             clf = RandomForestClassifier(n_estimators=100, random_state=42)
             clf.fit(X_train, y_train)
-            st.write(f"Precisión en test: {clf.score(X_test, y_test):.2f}")
+            st.success(f"Precisión en test: {clf.score(X_test, y_test):.2f}")
 
             st.write("### Predicción de nueva muestra")
             user_input = {}
@@ -207,13 +233,23 @@ with tabs[2]:
                 pred = clf.predict(sample)[0]
                 st.success(f"🔮 La especie predicha es: **{pred}**")
 
+        # ====== Resumen EDA para LLM ======
+        eda_summary = f"""
+        El dataset tiene {df.shape[0]} filas y {df.shape[1]} columnas.
+        Columnas: {list(df.columns)}.
+        Columnas numéricas: {list(numeric_cols)}.
+        Columnas categóricas: {list(cat_cols)}.
+        Valores nulos detectados: {df.isnull().sum().to_dict()}.
+        Estadísticas principales:
+        {df.describe(include='all').to_dict()}.
+        """
+
         # ====== Chat basado en dataset + modelo ======
         st.subheader("💬 Chat con el agente sobre el dataset")
         question = st.text_input("Escribe tu pregunta sobre el dataset o una especie")
 
         if question:
-            # Resumen general del dataset
-            dataset_summary = f"Columnas: {list(df.columns)}. Total de filas: {len(df)}."
+            dataset_summary = f"Resumen del dataset: {eda_summary}"
             if clf:
                 dataset_summary += f" Clasificador RandomForest entrenado con precisión {clf.score(X_test, y_test):.2f}."
 
@@ -225,16 +261,13 @@ with tabs[2]:
             example_text = ""
             if matched_rows is not None and not matched_rows.empty:
                 st.write("### Ejemplos encontrados en el dataset:")
-                st.dataframe(matched_rows.head(3))  # mostrar en pantalla
-                # Crear texto de contexto con máximo 3 filas
+                st.dataframe(matched_rows.head(3))
                 example_text = "\n\n".join([
                     " | ".join([f"{col}: {row[col]}" for col in df.columns])
                     for _, row in matched_rows.head(3).iterrows()
                 ])
 
-            # Contexto para el LLM
             context_text = f"""
-            Resumen del dataset:
             {dataset_summary}
 
             Ejemplos relevantes:
