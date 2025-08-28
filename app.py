@@ -1,8 +1,13 @@
-# app.py — Groq-only, sidebar con foto en tarjeta (borde + sombra + esquinas redondeadas)
 import streamlit as st
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from pathlib import Path
 import base64
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.ensemble import RandomForestClassifier
 
 from tools import (
     prepare_concept_kb, search_concepts,
@@ -15,27 +20,14 @@ st.set_page_config(page_title="Agente LLM de Biología", page_icon="🧬", layou
 # =========================
 # Parámetros por defecto
 # =========================
-K_DEFAULT = 8          # Top-K para recuperación semántica (más recall para re-ranking)
-CONF_THRESHOLD = 0.45  # Umbral para avisos de baja confianza
+K_DEFAULT = 8
+CONF_THRESHOLD = 0.45
 
-# Imagen de la sidebar (tu archivo local)
-SIDEBAR_IMAGE_LOCAL = Path("assets/Mono.jpg")  # Asegúrate de tener assets/mono.jpg en el repo
+SIDEBAR_IMAGE_LOCAL = Path("assets/Mono.jpg")
 SIDEBAR_IMAGE_URL   = "https://upload.wikimedia.org/wikipedia/commons/3/37/African_Bush_Elephant.jpg"
-
-def _listify_str(x):
-    """Convierte x en lista de strings para ', '.join(...) sin romper si es str/None."""
-    if x is None:
-        return []
-    if isinstance(x, str):
-        return [x]
-    try:
-        return [str(v) for v in x]
-    except TypeError:
-        return [str(x)]
 
 # -------- Patch: tarjeta con borde + sombra para la foto de la sidebar --------
 def sidebar_photo_card(image_path: Path, url_fallback: str, caption: str = ""):
-    """Muestra una imagen en la sidebar con borde, sombra y esquinas redondeadas."""
     if image_path.exists():
         data = image_path.read_bytes()
         b64 = base64.b64encode(data).decode("utf-8")
@@ -79,9 +71,6 @@ def sidebar_photo_card(image_path: Path, url_fallback: str, caption: str = ""):
 # Sidebar mínima
 # =========================
 st.sidebar.header("⚙️ Configuración (Groq)")
-
-# 1) Key desde Secrets (prioridad) o barra lateral
-groq_key_secret = None
 try:
     groq_key_secret = st.secrets.get("GROQ_API_KEY", None)
 except Exception:
@@ -99,7 +88,6 @@ groq_model = st.sidebar.selectbox("Modelo Groq", ["llama3-70b-8192", "llama3-8b-
 st.sidebar.caption("🔌 Motor activo: **Groq**")
 
 st.sidebar.markdown("---")
-# 👉 usa la tarjeta con marco y sombra para la foto del mono
 sidebar_photo_card(SIDEBAR_IMAGE_LOCAL, SIDEBAR_IMAGE_URL, caption="")
 
 # =========================
@@ -125,11 +113,11 @@ llm = make_llm_cached(groq_model, effective_groq_key)
 # UI
 # =========================
 st.title("🧬 Agente LLM de Biología")
-st.caption("Identificador de especies por descripción • Conceptos y procesos (RAG + explicación)")
+st.caption("Identificador de especies por descripción • Conceptos y procesos • EDA y Clasificación")
 
-tabs = st.tabs(["Identificar especie", "Conceptos y procesos"])
+tabs = st.tabs(["Identificar especie", "Conceptos y procesos", "EDA + Clasificación"])
 
-# --- Tab 1: Identificar especie (sin filtros) ---
+# --- Tab 1: Identificar especie ---
 with tabs[0]:
     st.subheader("🦋 Identificador de especies por descripción")
     desc = st.text_area(
@@ -139,33 +127,19 @@ with tabs[0]:
     run_id = st.button("Identificar", type="primary", key="id_btn")
 
     if run_id and desc.strip():
-        # Recuperación semántica base
         results = identify_species(desc, sp, corpus_s, embedder_s, index_s, k=K_DEFAULT)
-
         st.write("📊 Candidatos (mayor similitud primero):")
-        df = pd.DataFrame(results)
-        st.dataframe(df, use_container_width=True)
-
-        # Re-ranking por LLM sobre top-K
+        st.dataframe(pd.DataFrame(results), use_container_width=True)
         rr = llm.rerank_species(desc, results, top_n=min(K_DEFAULT, len(results)))
         best = rr.get("best", {}) or {}
         confidence = float(rr.get("confidence", 0.0) or 0.0)
         notes = rr.get("notes", "") or ""
-
         if results and results[0].get("similarity", 0.0) < CONF_THRESHOLD:
-            st.warning("La confianza del índice es baja. Añade rasgos distintivos (patrones, medidas, región exacta).")
-
-        common_names_str = ", ".join(_listify_str(best.get("common_names")))
+            st.warning("Confianza baja: añade rasgos distintivos.")
         sci_name = best.get("scientific_name", "—")
-        verdict_md = f"""**🔎 Veredicto del LLM (re-ranking)**  
-**{sci_name}** ({common_names_str}) — confianza LLM: **{confidence:.2f}**"""
-        if best.get("reason"):
-            verdict_md += f"\n\n**Motivo:** {best['reason']}"
-        if notes:
-            verdict_md += f"\n\n*{notes}*"
-        st.success(verdict_md)
+        st.success(f"**🔎 Veredicto del LLM:** {sci_name} — confianza: {confidence:.2f}")
 
-# --- Tab 2: Conceptos y procesos (unificados) ---
+# --- Tab 2: Conceptos y procesos ---
 with tabs[1]:
     st.subheader("📚 Conceptos y procesos (con RAG)")
     mode = st.radio("Modo", ["Pregunta (Q&A)", "Explicar proceso"], horizontal=True)
@@ -179,11 +153,60 @@ with tabs[1]:
                 st.markdown(f"**{h['title']}** — score: `{h['score']:.3f}`")
                 st.write(h["text"])
                 st.markdown("---")
-
-        if mode.startswith("Explicar"):
-            ans = llm.answer_concepts_or_process(text, hits, mode="process")
-        else:
-            ans = llm.answer_concepts_or_process(text, hits, mode="qa")
-
+        ans = llm.answer_concepts_or_process(text, hits, mode="process" if mode.startswith("Explicar") else "qa")
         st.success(ans)
+
+# --- Tab 3: EDA + Clasificación ---
+with tabs[2]:
+    st.subheader("📊 Análisis Exploratorio de Datos + Clasificación")
+    uploaded = st.file_uploader("Sube un archivo CSV con tu dataset de especies", type=["csv"])
+    if uploaded:
+        df = pd.read_csv(uploaded)
+        st.write("### Vista previa del dataset:")
+        st.dataframe(df.head())
+        st.write(f"Shape: {df.shape}")
+
+        # Nulos
+        st.write("### Valores nulos:")
+        st.dataframe(df.isnull().sum())
+
+        # Descriptivas
+        st.write("### Estadísticas descriptivas:")
+        st.write(df.describe(include="all"))
+
+        # Visualizaciones
+        st.write("### Histogramas de variables numéricas")
+        fig, ax = plt.subplots(figsize=(10,5))
+        df.select_dtypes(include=np.number).hist(ax=ax)
+        st.pyplot(fig)
+
+        st.write("### Mapa de calor de correlaciones")
+        fig, ax = plt.subplots(figsize=(8,6))
+        sns.heatmap(df.select_dtypes(include=np.number).corr(), annot=True, cmap="coolwarm", ax=ax)
+        st.pyplot(fig)
+
+        # --- Clasificación ---
+        st.write("### Entrenamiento de clasificador (Random Forest)")
+        if "Especie" in df.columns:
+            X = df.drop("Especie", axis=1)
+            y = df["Especie"]
+
+            # Codificar categóricas
+            for col in X.select_dtypes(include="object").columns:
+                X[col] = LabelEncoder().fit_transform(X[col])
+
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            clf = RandomForestClassifier(n_estimators=100, random_state=42)
+            clf.fit(X_train, y_train)
+            st.write(f"Precisión en test: {clf.score(X_test, y_test):.2f}")
+
+            st.write("### Predicción de nueva muestra")
+            user_input = {}
+            for col in X.columns:
+                val = st.number_input(f"{col}", float(X[col].min()), float(X[col].max()), float(X[col].mean()))
+                user_input[col] = val
+            if st.button("Predecir especie"):
+                sample = pd.DataFrame([user_input])
+                pred = clf.predict(sample)[0]
+                st.success(f"🔮 La especie predicha es: **{pred}**")
 
