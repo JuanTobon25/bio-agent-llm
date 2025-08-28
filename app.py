@@ -131,7 +131,6 @@ with tabs[0]:
         rr = llm.rerank_species(desc, results, top_n=min(K_DEFAULT, len(results)))
         best = rr.get("best", {}) or {}
         confidence = float(rr.get("confidence", 0.0) or 0.0)
-        notes = rr.get("notes", "") or ""
         if results and results[0].get("similarity", 0.0) < CONF_THRESHOLD:
             st.warning("Confianza baja: añade rasgos distintivos.")
         sci_name = best.get("scientific_name", "—")
@@ -163,7 +162,7 @@ with tabs[2]:
         st.dataframe(df.head())
         st.write(f"Shape: {df.shape}")
 
-        # EDA
+        # ====== EDA ======
         st.write("### Valores nulos:")
         st.dataframe(df.isnull().sum())
         st.write("### Estadísticas descriptivas:")
@@ -183,13 +182,13 @@ with tabs[2]:
             sns.heatmap(df[numeric_cols].corr(), annot=True, cmap="coolwarm", ax=ax)
             st.pyplot(fig)
 
-        # Clasificación
+        # ====== Clasificación ======
+        clf, X, y = None, None, None
         if "Especie" in df.columns:
             st.write("### Entrenamiento de clasificador (Random Forest)")
             X = df.drop("Especie", axis=1)
             y = df["Especie"]
 
-            # Codificar categóricas
             for col in X.select_dtypes(include="object").columns:
                 X[col] = LabelEncoder().fit_transform(X[col])
 
@@ -208,16 +207,24 @@ with tabs[2]:
                 pred = clf.predict(sample)[0]
                 st.success(f"🔮 La especie predicha es: **{pred}**")
 
-            # Chat basado en dataset
-            st.subheader("💬 Pregunta por especie")
-            question = st.text_input("Escribe tu pregunta (ejemplo: 'Háblame de Panthera leo')")
-            if question:
-                matched = df[df['Especie'].str.contains(question, case=False, na=False)]
-                if not matched.empty:
-                    for _, row in matched.iterrows():
-                        info_text = " ".join([f"{col}: {row[col]}" for col in df.columns if col != "Especie"])
-                        st.info(f"**{row['Especie']}** → {info_text}")
-                else:
-                    st.warning("No encontré esa especie en el dataset.")
+        # ====== Chat basado en dataset + modelo ======
+        st.subheader("💬 Chat con el agente sobre el dataset")
+        question = st.text_input("Escribe tu pregunta sobre el dataset o una especie")
+
+        if question:
+            # Resumir dataset y modelo como contexto
+            dataset_summary = f"Columnas: {list(df.columns)}. Total de filas: {len(df)}."
+            if clf:
+                dataset_summary += f" Clasificador RandomForest entrenado con precisión {clf.score(X_test, y_test):.2f}."
+            
+            # Pasar contexto al LLM
+            context_text = f"""
+            Aquí tienes un resumen del dataset cargado: 
+            {dataset_summary}
+
+            Pregunta del usuario: {question}
+            """
+            answer = llm.answer_concepts_or_process(question, [{"title": "dataset", "text": context_text, "score": 1.0}], mode="qa")
+            st.success(answer)
 
 
